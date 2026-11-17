@@ -3,8 +3,14 @@
 Une petite application pour partager les tâches de la maison à deux : qui fait quoi, quand, et ce qui est fait.
 Elle s'installe sur l'écran d'accueil de l'iPhone et d'Android, et se synchronise en temps réel entre vos deux téléphones.
 
-**Version 1** : connexion, vue semaine, tâches ponctuelles (pour l'un, l'autre ou les deux), case à cocher, couleur par personne, mode clair/sombre, indicateur de sauvegarde, copies automatiques et export/import.
-À venir : tâches récurrentes, vue mois, récapitulatif de la répartition.
+**Fonctionnalités**
+- **Accueil** : ta journée (tes tâches du jour et celles en retard), le récap de la semaine pour chacun, les rappels à cocher et les notes partagées.
+- **Semaine** et **Mois** : le calendrier des tâches de ménage, une couleur par personne.
+- **Actions** : une liste d'icônes de ménage (vaisselle, évier, four, micro-ondes…) modifiable à deux : ajouter une action avec son emoji, choisir son rang, réordonner, retirer.
+- **Commentaires** sur chaque tâche.
+- Mode clair/sombre, changement de mot de passe, indicateur de sauvegarde, copies automatiques et export/import.
+
+À venir : tâches récurrentes.
 
 ---
 
@@ -54,7 +60,7 @@ Au premier lancement, chacun se connecte avec son e-mail et son mot de passe, pu
 | Niveau | Comment ça marche |
 |---|---|
 | **En ligne, en continu** | Chaque modification part sur Firebase en quelques secondes. Hors ligne, elle est gardée sur le téléphone et envoyée toute seule au retour du réseau. |
-| **Copie automatique par jour** | À la première ouverture de la journée, l'app enregistre une copie complète. Les 35 derniers jours sont conservés. (Les sauvegardes intégrées de Firebase sont payantes : c'est l'alternative gratuite.) |
+| **Copie automatique par jour** | À la première ouverture de la journée, l'app enregistre une copie complète (tâches, notes, rappels, actions). Les 35 derniers jours sont conservés. (Les sauvegardes intégrées de Firebase sont payantes : c'est l'alternative gratuite.) |
 | **Fichier sur l'appareil** | *⋯ → Télécharger une copie* : un fichier `.json` à garder dans Fichiers, Drive, etc. Indispensable en cas de problème avec le compte Firebase lui-même. Conseil : une fois par mois. |
 | **Restaurer** | *⋯ → Copies en ligne → Restaurer*, ou *Importer un fichier*. Avant chaque restauration, une copie de l'état actuel est faite automatiquement : on peut toujours revenir en arrière. |
 
@@ -63,6 +69,8 @@ Au premier lancement, chacun se connecte avec son e-mail et son mot de passe, pu
 - 🟠 *Enregistrement…* / *Hors ligne · en attente d'envoi* — gardé sur le téléphone, partira tout seul
 - ⚪ *Hors ligne* — rien en attente
 - 🔴 *Échec de l'enregistrement* — une modification a été refusée
+
+**Notes partagées** : elles sont protégées comme le reste (visibles par vous deux uniquement), mais évitez d'y mettre des codes bancaires ou des mots de passe importants.
 
 **Mises à jour de l'app** : le code est sur GitHub, les données sur Firebase. Mettre à jour l'un ne touche jamais l'autre. Les nouvelles versions ajouteront des informations aux tâches sans jamais en effacer.
 
@@ -76,5 +84,5 @@ Au premier lancement, chacun se connecte avec son e-mail et son mot de passe, pu
 | `style.css` | L'apparence (clair et sombre) |
 | `app.js` | Le fonctionnement |
 | `firebase-config.js` | L'adresse de votre projet Firebase |
-| `firestore.rules` | Modèle des règles de sécurité (à coller dans la console) |
+| `firestore.rules` | Modèle des règles de sécurité (à coller dans la console, à refaire quand ce fichier change) |
 | `sw.js`, `manifest.webmanifest`, `icons/` | Installation sur l'écran d'accueil et ouverture hors ligne |

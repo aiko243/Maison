@@ -46,10 +46,11 @@ service cloud.firestore {
     }
     function validTask(d) {
       return d.keys().hasAll(['title', 'date', 'assignee', 'completions', 'deleted', 'createdBy', 'createdAt', 'updatedAt', 'updatedBy', 'v'])
-        && d.keys().hasOnly(['title', 'date', 'assignee', 'completions', 'repeat', 'deleted', 'deletedAt', 'createdBy', 'createdAt', 'updatedAt', 'updatedBy', 'v'])
+        && d.keys().hasOnly(['title', 'date', 'assignee', 'comment', 'completions', 'repeat', 'deleted', 'deletedAt', 'createdBy', 'createdAt', 'updatedAt', 'updatedBy', 'v'])
         && d.title is string && d.title.size() > 0 && d.title.size() <= 120
         && isDay(d.date)
         && (d.assignee == 'both' || d.assignee in uids())
+        && (!('comment' in d) || (d.comment is string && d.comment.size() <= 500))
         && d.completions is map
         && (!('repeat' in d) || d.repeat == null || d.repeat is map)
         && d.deleted is bool
@@ -59,6 +60,41 @@ service cloud.firestore {
         && d.updatedBy == request.auth.uid
         && d.updatedAt == request.time
         && d.v is int;
+    }
+
+    // ---- Notes partagées et rappels ----
+    match /notes/{noteId} {
+      allow read: if isMember();
+      allow create, update: if isMember() && validNote(request.resource.data);
+      // Aucun effacement définitif : une note supprimée est seulement masquée
+      allow delete: if false;
+    }
+    function validNote(d) {
+      return d.keys().hasAll(['kind', 'text', 'done', 'deleted', 'createdBy', 'createdAt', 'updatedAt', 'updatedBy', 'v'])
+        && d.keys().hasOnly(['kind', 'text', 'done', 'deleted', 'deletedAt', 'createdBy', 'createdAt', 'updatedAt', 'updatedBy', 'v'])
+        && d.kind in ['note', 'reminder']
+        && d.text is string && d.text.size() > 0 && d.text.size() <= 2000
+        && d.done is bool
+        && d.deleted is bool
+        && (!('deletedAt' in d) || d.deletedAt is number)
+        && d.createdBy in uids()
+        && d.createdAt is number
+        && d.updatedBy == request.auth.uid
+        && d.updatedAt == request.time
+        && d.v is int;
+    }
+
+    // ---- Réglages partagés (liste des actions et icônes) ----
+    match /config/{docId} {
+      allow read: if isMember();
+      allow create, update: if isMember() && docId == 'actions' && validActions(request.resource.data);
+      allow delete: if false;
+    }
+    function validActions(d) {
+      return d.keys().hasOnly(['items', 'updatedAt', 'updatedBy'])
+        && d.items is list && d.items.size() <= 60
+        && d.updatedBy == request.auth.uid
+        && d.updatedAt == request.time;
     }
 
     // ---- Copies de sauvegarde ----

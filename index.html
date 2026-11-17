@@ -104,13 +104,15 @@
     </header>
 
     <div class="viewbar">
-      <div id="legend" class="legend"></div>
       <div class="toggle" role="group" aria-label="Affichage">
-        <button type="button" id="view-week" aria-pressed="true">Semaine</button>
+        <button type="button" id="view-home" aria-pressed="true">Accueil</button>
+        <button type="button" id="view-week" aria-pressed="false">Semaine</button>
         <button type="button" id="view-month" aria-pressed="false">Mois</button>
       </div>
     </div>
-    <main id="week" class="week"></main>
+    <div id="legend" class="legend" hidden></div>
+    <main id="home" class="home"></main>
+    <main id="week" class="week" hidden></main>
     <main id="month" class="month" hidden></main>
 
     <button type="button" id="status" class="status" data-state="offline">
@@ -127,7 +129,7 @@
     <form id="task-form" novalidate>
       <h2 id="task-sheet-title">Nouvelle tâche</h2>
       <div class="emoji-row" id="task-emoji" role="radiogroup" aria-label="Icône de la tâche"></div>
-      <input id="task-title" class="input-big" type="text" maxlength="80" placeholder="Ex. Passer l'aspirateur" autocomplete="off" enterkeyhint="done" required>
+      <input id="task-title" class="input-big" type="text" maxlength="80" placeholder="Nom de la tâche" autocomplete="off" enterkeyhint="done" required>
       <div class="field">
         <span>Pour qui ?</span>
         <div class="seg" id="task-who" role="radiogroup" aria-label="Pour qui"></div>
@@ -135,6 +137,10 @@
       <label class="field">
         <span>Jour</span>
         <input id="task-date" type="date" required>
+      </label>
+      <label class="field">
+        <span>Commentaire</span>
+        <textarea id="task-comment" rows="2" maxlength="500" placeholder="Facultatif : produit à utiliser, précision…"></textarea>
       </label>
       <p id="task-error" class="form-error" role="alert" hidden></p>
       <div class="sheet-actions">
@@ -162,6 +168,13 @@
         <input id="menu-name" type="text" maxlength="30" autocomplete="given-name">
       </label>
       <div class="swatches" id="menu-colors" role="radiogroup" aria-label="Ma couleur"></div>
+    </section>
+
+    <section class="menu-section">
+      <h3>Tâches</h3>
+      <div class="row-btns">
+        <button type="button" class="btn-secondary" id="actions-btn">Actions et icônes</button>
+      </div>
     </section>
 
     <section class="menu-section">
@@ -200,6 +213,52 @@
       <button type="button" class="btn-text danger left" id="logout-btn">Se déconnecter</button>
       <p class="muted small" id="version-info"></p>
     </section>
+  </dialog>
+
+  <!-- Actions et icônes -->
+  <dialog id="actions-dialog" class="sheet">
+    <div class="sheet-head">
+      <h2>Actions et icônes</h2>
+      <button type="button" class="icon-btn" id="actions-close" aria-label="Fermer">
+        <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+    <p class="muted small">L'ordre ici est celui de la fiche tâche. Mettez en haut ce que vous faites le plus souvent.</p>
+    <ol id="actions-list" class="actions-list"></ol>
+    <form id="actions-form" class="actions-form" novalidate>
+      <h3>Nouvelle action</h3>
+      <div class="act-fields">
+        <label class="field act-emoji-field">
+          <span>Emoji</span>
+          <input id="act-emoji" type="text" maxlength="8" placeholder="✨" autocomplete="off" aria-label="Emoji">
+        </label>
+        <label class="field act-label-field">
+          <span>Nom</span>
+          <input id="act-label" type="text" maxlength="30" placeholder="Ex. Hotte" autocomplete="off">
+        </label>
+        <label class="field act-rank-field">
+          <span>Rang</span>
+          <select id="act-rank"></select>
+        </label>
+      </div>
+      <p id="act-error" class="form-error" role="alert" hidden></p>
+      <button type="submit" class="btn-primary wide">Ajouter</button>
+      <button type="button" class="btn-text left" id="actions-reset">Revenir à la liste de départ</button>
+    </form>
+  </dialog>
+
+  <!-- Note ou rappel -->
+  <dialog id="note-dialog" class="modal">
+    <form id="note-form" novalidate>
+      <h2 id="note-title">Note</h2>
+      <textarea id="note-text" rows="5" maxlength="2000"></textarea>
+      <div class="sheet-actions">
+        <button type="button" class="btn-text danger" id="note-delete" hidden>Supprimer</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn-text" id="note-cancel">Annuler</button>
+        <button type="submit" class="btn-primary">Enregistrer</button>
+      </div>
+    </form>
   </dialog>
 
   <!-- Changer le mot de passe -->
