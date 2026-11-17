@@ -16,11 +16,15 @@ import {
 } from 'https://www.gstatic.com/firebasejs/12.14.0/firebase-firestore.js';
 import { firebaseConfig } from './firebase-config.js';
 
-const APP_VERSION = '2.0.0';
+const APP_VERSION = '2.1.0';
 const DATA_VERSION = 1;          // version du format des données (on ne fait qu'ajouter, jamais effacer)
 const BACKUP_KEEP_DAYS = 35;     // copies en ligne conservées ~5 semaines
 const MAX_BACKUP_CHARS = 900000; // limite Firestore : 1 Mo par document
-const COLORS = ['#E2557F', '#7A68DB', '#24A07F', '#E5862E', '#3384D6', '#B8932A'];
+// Couleurs des personnes, dans des tons chauds et doux (terracotta, sauge, caramel…)
+const COLORS = ['#C0654B', '#7D9A6C', '#C99050', '#B5727E', '#6683A1', '#8C6E91'];
+// Anciennes couleurs (version 1) -> nouvelles, pour que les profils déjà créés suivent le nouveau style
+const OLD_COLORS = { '#E2557F': '#C0654B', '#7A68DB': '#6683A1', '#24A07F': '#7D9A6C', '#E5862E': '#C99050', '#3384D6': '#6683A1', '#B8932A': '#C99050' };
+const tone = (c) => OLD_COLORS[(c || '').toUpperCase()] || c;
 
 // ---------- État ----------
 const S = {
@@ -111,7 +115,7 @@ function applyTheme(pref) {
   if (pref === 'auto') delete root.dataset.theme; else root.dataset.theme = pref;
   try { localStorage.setItem('theme', pref); } catch { /* rien */ }
   // En mode « auto », on force l'attribut selon le téléphone pour que les icônes suivent
-  $('meta[name="theme-color"]').setAttribute('content', isDark() ? '#141316' : '#FAF9F7');
+  $('meta[name="theme-color"]').setAttribute('content', isDark() ? '#1D1814' : '#F6F1EA');
   renderThemeSeg();
 }
 matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', () => applyTheme(themePref()));
@@ -227,7 +231,7 @@ function onLogin(user) {
 
   unsubs.push(onSnapshot(collection(db, 'members'), { includeMetadataChanges: true }, (snap) => {
     const m = {};
-    snap.forEach((d) => { const x = d.data(); m[d.id] = { name: x.name, color: x.color }; });
+    snap.forEach((d) => { const x = d.data(); m[d.id] = { name: x.name, color: tone(x.color) }; });
     S.members = m;
     const decided = snap.metadata.fromCache === false || m[S.uid];
     if (!S.membersReady && decided) {
@@ -492,7 +496,7 @@ function renderMonth() {
   );
 }
 
-function colorOf(uid) { return S.members[uid]?.color || '#9A97A1'; }
+function colorOf(uid) { return tone(S.members[uid]?.color) || '#A99887'; }
 function nameOf(uid) { return S.members[uid]?.name || '…'; }
 function orderedUids() {
   const o = otherUid();

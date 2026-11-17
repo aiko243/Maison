@@ -1,35 +1,35 @@
 /* ===== Couleurs : clair par défaut, sombre selon le téléphone ou le choix ===== */
 :root {
-  --bg: #FAF9F7;
-  --surface: #FFFFFF;
-  --text: #1C1B1F;
-  --muted: #84818A;
-  --faint: #BDBAC2;
-  --line: #ECEAE6;
-  --hover: #F2F0EC;
-  --accent: #1C1B1F;
-  --accent-text: #FFFFFF;
-  --ok: #2E9E6A;
-  --warn: #D98B1C;
-  --err: #D2463F;
-  --shadow: 0 12px 32px rgba(28, 24, 34, .10);
+  --bg: #F6F1EA;
+  --surface: #FFFCF7;
+  --text: #3A2E26;
+  --muted: #8A7868;
+  --faint: #C5B7A8;
+  --line: #E7DDD1;
+  --hover: #EFE6DA;
+  --accent: #6F4E37;
+  --accent-text: #FFF9F1;
+  --ok: #6E8F5C;
+  --warn: #C2873A;
+  --err: #B4533C;
+  --shadow: 0 12px 32px rgba(74, 52, 36, .12);
   --radius: 16px;
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg: #141316; --surface: #1E1D21; --text: #EDEBF0; --muted: #9A97A1; --faint: #5C5962;
-    --line: #2B2A2F; --hover: #26252A; --accent: #EDEBF0; --accent-text: #141316;
-    --ok: #4CC38A; --warn: #E9A440; --err: #F06A62;
+    --bg: #1D1814; --surface: #27211C; --text: #EFE5D8; --muted: #A99887; --faint: #6B5D51;
+    --line: #382E27; --hover: #31291F; --accent: #D8B894; --accent-text: #1D1814;
+    --ok: #93B27F; --warn: #D9A35A; --err: #DB765F;
     --shadow: 0 12px 32px rgba(0, 0, 0, .45);
     color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
-  --bg: #141316; --surface: #1E1D21; --text: #EDEBF0; --muted: #9A97A1; --faint: #5C5962;
-  --line: #2B2A2F; --hover: #26252A; --accent: #EDEBF0; --accent-text: #141316;
-  --ok: #4CC38A; --warn: #E9A440; --err: #F06A62;
-  --shadow: 0 12px 32px rgba(0, 0, 0, .45);
+  --bg: #1D1814; --surface: #27211C; --text: #EFE5D8; --muted: #A99887; --faint: #6B5D51;
+    --line: #382E27; --hover: #31291F; --accent: #D8B894; --accent-text: #1D1814;
+    --ok: #93B27F; --warn: #D9A35A; --err: #DB765F;
+    --shadow: 0 12px 32px rgba(0, 0, 0, .45);
   color-scheme: dark;
 }
 
@@ -238,7 +238,7 @@ input[type="date"] { display: block; }
 
 /* ===== Fenêtres ===== */
 dialog { color: var(--text); background: var(--surface); border: 0; padding: 0; }
-dialog::backdrop { background: rgba(10, 8, 14, .38); }
+dialog::backdrop { background: rgba(40, 28, 18, .40); }
 .sheet {
   width: 100%; max-width: 560px;
   margin: auto auto 0; max-height: 92vh; max-height: 92dvh;
