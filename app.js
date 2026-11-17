@@ -16,7 +16,7 @@ import {
 } from 'https://www.gstatic.com/firebasejs/12.14.0/firebase-firestore.js';
 import { firebaseConfig } from './firebase-config.js';
 
-const APP_VERSION = '1.2.0';
+const APP_VERSION = '1.3.0';
 const DATA_VERSION = 1;          // version du format des données (on ne fait qu'ajouter, jamais effacer)
 const BACKUP_KEEP_DAYS = 35;     // copies en ligne conservées ~5 semaines
 const MAX_BACKUP_CHARS = 900000; // limite Firestore : 1 Mo par document
@@ -505,7 +505,10 @@ function taskRow(t, ds) {
       onclick: () => toggleDone(t, ds),
     }),
     h('button', { type: 'button', class: 'task-main', onclick: () => openTask(t) },
-      h('span', { class: 'task-title', text: t.title }),
+      (() => { const { emoji, text } = splitTitle(t.title); return [
+        emoji ? h('span', { class: 'task-emoji', 'aria-hidden': 'true', text: emoji }) : null,
+        h('span', { class: 'task-title', text }),
+      ]; })(),
       h('span', { class: 'task-who', text: whoLabel(t.assignee) })));
 }
 
@@ -530,10 +533,68 @@ function renderWho(selected) {
     h('span', {}, h('i', { class: o.v === 'both' ? 'both' : null, vars: whoVars(o.v) }), o.label))));
 }
 
+// ---------- Icônes des tâches ----------
+// Chaque icône a des mots-clés : en tapant le nom de la tâche, l'icône se choisit toute seule.
+// Les plus précises d'abord, le nettoyage général en dernier.
+const EMOJIS = [
+  { e: '🧹', label: 'Aspirateur, balai', k: ['aspirateur', 'aspirer', 'balai', 'balayer', 'poussiere', 'depoussierer'] },
+  { e: '🪣', label: 'Serpillière', k: ['serpillere', 'serpilliere', 'laver le sol', 'sols', 'sol'] },
+  { e: '🍽️', label: 'Vaisselle', k: ['vaisselle', 'assiette', 'lave-vaisselle'] },
+  { e: '🧺', label: 'Linge', k: ['linge', 'lessive', 'machine', 'etendre', 'plier', 'seche-linge'] },
+  { e: '👕', label: 'Repassage', k: ['repassage', 'repasser', 'vetement', 'habits'] },
+  { e: '🛏️', label: 'Lit, draps', k: ['lit', 'draps', 'drap', 'housse', 'couette', 'chambre'] },
+  { e: '🚽', label: 'Toilettes', k: ['toilette', 'wc'] },
+  { e: '🛁', label: 'Salle de bain', k: ['salle de bain', 'sdb', 'douche', 'baignoire', 'lavabo', 'bain'] },
+  { e: '🗑️', label: 'Poubelles', k: ['poubelle', 'ordure', 'dechet'] },
+  { e: '♻️', label: 'Tri, recyclage', k: ['tri', 'recyclage', 'recycler', 'verre', 'carton'] },
+  { e: '🛒', label: 'Courses', k: ['course', 'supermarche', 'marche', 'drive'] },
+  { e: '🍳', label: 'Repas', k: ['cuisine', 'cuisiner', 'repas', 'diner', 'dejeuner', 'petit-dej', 'batch'] },
+  { e: '🧊', label: 'Frigo', k: ['frigo', 'refrigerateur', 'congelateur', 'degivrer'] },
+  { e: '🪟', label: 'Vitres', k: ['vitre', 'fenetre', 'miroir'] },
+  { e: '🌿', label: 'Plantes', k: ['plante', 'arroser', 'arrosage', 'fleur'] },
+  { e: '🐾', label: 'Animaux', k: ['chat', 'chien', 'litiere', 'croquette', 'gamelle', 'animaux', 'veto'] },
+  { e: '📦', label: 'Rangement', k: ['rangement', 'ranger', 'trier', 'placard', 'armoire'] },
+  { e: '🔧', label: 'Bricolage', k: ['bricolage', 'bricoler', 'reparer', 'ampoule', 'reparation'] },
+  { e: '📬', label: 'Courrier, papiers', k: ['courrier', 'colis', 'papiers', 'facture', 'boite aux lettres'] },
+  { e: '🧽', label: 'Nettoyage', k: ['eponge', 'plan de travail', 'four', 'micro-onde', 'plaque', 'evier', 'nettoyer', 'nettoyage', 'menage'] },
+];
+const EMOJI_RE = /^(\p{Extended_Pictographic}(?:️|‍\p{Extended_Pictographic}|\p{Emoji_Modifier})*)\s*/u;
+
+function splitTitle(title) {
+  const m = (title || '').match(EMOJI_RE);
+  return m ? { emoji: m[1], text: title.slice(m[0].length) } : { emoji: '', text: title || '' };
+}
+
+function suggestEmoji(text) {
+  const norm = ` ${text.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')}`;
+  for (const item of EMOJIS) {
+    // Mot entier (avec pluriel en -s ou -x) : « sol » ne reconnaît pas « solde »
+    if (item.k.some((kw) => new RegExp(`[^a-z]${kw.replace(/-/g, '\\-')}[sx]?(?![a-z])`).test(norm))) return item.e;
+  }
+  return '';
+}
+
+function renderEmojiPicker() {
+  $('#task-emoji').replaceChildren(...EMOJIS.map((item) => h('button', {
+    type: 'button', role: 'radio', class: 'emoji-btn', title: item.label, 'aria-label': item.label,
+    'aria-checked': String(item.e === S.pickedEmoji), text: item.e,
+    onclick: () => {
+      S.pickedEmoji = S.pickedEmoji === item.e ? '' : item.e;
+      S.emojiManual = true;
+      renderEmojiPicker();
+    },
+  })));
+}
+
 function openTask(t, dateStr) {
   S.editing = t;
   $('#task-sheet-title').textContent = t ? 'Modifier la tâche' : 'Nouvelle tâche';
-  $('#task-title').value = t ? t.title : '';
+  const parts = splitTitle(t ? t.title : '');
+  $('#task-title').value = parts.text;
+  S.pickedEmoji = parts.emoji;
+  S.emojiManual = !!parts.emoji;   // une icône déjà choisie n'est plus devinée automatiquement
+  renderEmojiPicker();
+  $('#task-emoji').scrollLeft = 0;
   $('#task-date').value = t ? t.date : (dateStr || ymd(new Date()));
   renderWho(t ? t.assignee : S.uid);
   $('#task-delete').hidden = !t;
@@ -544,7 +605,9 @@ function openTask(t, dateStr) {
 
 function saveTask(e) {
   e.preventDefault();
-  const title = $('#task-title').value.trim().slice(0, 80);
+  const text = $('#task-title').value.trim().slice(0, 80);
+  // L'icône est enregistrée au début du titre : aucun changement de base nécessaire
+  const title = text && S.pickedEmoji ? `${S.pickedEmoji} ${text}` : text;
   const date = $('#task-date').value;
   const assignee = document.querySelector('input[name="who"]:checked')?.value || S.uid;
   const err = $('#task-error');
@@ -696,7 +759,7 @@ function cleanTask(t, validUids) {
     }
   }
   const out = {
-    title: t.title.trim().slice(0, 80), date: t.date, assignee, completions,
+    title: t.title.trim().slice(0, 120), date: t.date, assignee, completions,
     repeat: t.repeat && typeof t.repeat === 'object' ? t.repeat : null,
     deleted: !!t.deleted,
     createdBy: validUids.includes(t.createdBy) ? t.createdBy : S.uid,
@@ -952,6 +1015,11 @@ function bindUi() {
 
   // Fiche tâche
   $('#task-form').addEventListener('submit', saveTask);
+  $('#task-title').addEventListener('input', (e) => {
+    if (S.emojiManual) return;
+    const guess = suggestEmoji(e.target.value);
+    if (guess !== S.pickedEmoji) { S.pickedEmoji = guess; renderEmojiPicker(); }
+  });
   $('#task-cancel').addEventListener('click', () => $('#task-sheet').close());
   $('#task-delete').addEventListener('click', deleteTask);
 

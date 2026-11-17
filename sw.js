@@ -2,7 +2,7 @@
 // Il ne garde QUE le code de l'app (pages, styles, scripts), jamais vos données.
 // Vos données sont gérées à part par Firebase : une mise à jour de l'app ne peut pas les effacer.
 
-const VERSION = 'maison-1.2.0';
+const VERSION = 'maison-1.3.0';
 const SHELL = [
   './',
   './index.html',
