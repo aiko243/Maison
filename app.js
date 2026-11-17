@@ -1,12 +1,13 @@
 // =====================================================================
 //  Maison — partage des tâches ménagères à deux
-//  Version 1 : connexion, semaine, tâches ponctuelles, sauvegardes.
+//  Connexion, vues semaine et mois, tâches, sauvegardes.
 // =====================================================================
 
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/12.14.0/firebase-app.js';
 import {
   initializeAuth, indexedDBLocalPersistence, browserLocalPersistence,
   onAuthStateChanged, signInWithEmailAndPassword, signOut, sendPasswordResetEmail,
+  EmailAuthProvider, reauthenticateWithCredential, updatePassword,
 } from 'https://www.gstatic.com/firebasejs/12.14.0/firebase-auth.js';
 import {
   initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
@@ -15,7 +16,7 @@ import {
 } from 'https://www.gstatic.com/firebasejs/12.14.0/firebase-firestore.js';
 import { firebaseConfig } from './firebase-config.js';
 
-const APP_VERSION = '1.0.0';
+const APP_VERSION = '1.2.0';
 const DATA_VERSION = 1;          // version du format des données (on ne fait qu'ajouter, jamais effacer)
 const BACKUP_KEEP_DAYS = 35;     // copies en ligne conservées ~5 semaines
 const MAX_BACKUP_CHARS = 900000; // limite Firestore : 1 Mo par document
@@ -28,6 +29,9 @@ const S = {
   membersReady: false,
   tasks: new Map(),     // id -> tâche
   weekStart: mondayOf(new Date()),
+  view: (() => { try { return localStorage.getItem('view') === 'month' ? 'month' : 'week'; } catch { return 'week'; } })(),
+  monthStart: firstOfMonth(new Date()),
+  selDay: ymd(new Date()),   // jour sélectionné dans la vue mois
   online: navigator.onLine,
   synced: false,        // données reçues du serveur
   snapPending: false,   // modifications pas encore confirmées par le serveur
@@ -55,10 +59,12 @@ function h(tag, props = {}, ...children) {
   for (const c of children.flat()) if (c != null && c !== false) el.append(c.nodeType ? c : document.createTextNode(String(c)));
   return el;
 }
-const pad = (n) => String(n).padStart(2, '0');
+function pad(n) { return String(n).padStart(2, '0'); }
 function ymd(d) { return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; }
 function parseYmd(s) { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d); }
 function addDays(d, n) { const x = new Date(d.getFullYear(), d.getMonth(), d.getDate()); x.setDate(x.getDate() + n); return x; }
+function firstOfMonth(d) { return new Date(d.getFullYear(), d.getMonth(), 1); }
+function addMonths(d, n) { return new Date(d.getFullYear(), d.getMonth() + n, 1); }
 function mondayOf(d) { const x = new Date(d.getFullYear(), d.getMonth(), d.getDate()); return addDays(x, -((x.getDay() + 6) % 7)); }
 const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 const fWeekday = new Intl.DateTimeFormat('fr-FR', { weekday: 'long' });
@@ -300,7 +306,138 @@ function enterMain() {
 
 function render() {
   renderLegend();
-  renderWeek();
+  renderView();
+}
+
+// ---------- Vue semaine / vue mois ----------
+function renderView() {
+  const month = S.view === 'month';
+  $('#week').hidden = month;
+  $('#month').hidden = !month;
+  $('#view-week').setAttribute('aria-pressed', String(!month));
+  $('#view-month').setAttribute('aria-pressed', String(month));
+  $('#prev-btn').setAttribute('aria-label', month ? 'Mois précédent' : 'Semaine précédente');
+  $('#next-btn').setAttribute('aria-label', month ? 'Mois suivant' : 'Semaine suivante');
+  if (month) renderMonth(); else renderWeek();
+}
+
+function setView(v) {
+  if (v === S.view) return;
+  // On garde le même moment : la semaine affichée devient le mois affiché, et inversement
+  if (v === 'month') {
+    const today = new Date();
+    const inWeek = ymd(mondayOf(today)) === ymd(S.weekStart);
+    const ref = inWeek ? today : S.weekStart;
+    S.monthStart = firstOfMonth(ref);
+    S.selDay = ymd(ref);
+  } else {
+    S.weekStart = mondayOf(parseYmd(S.selDay));
+  }
+  S.view = v;
+  try { localStorage.setItem('view', v); } catch { /* rien */ }
+  renderView();
+}
+
+function goStep(n) {
+  if (S.view === 'month') {
+    S.monthStart = addMonths(S.monthStart, n);
+    const today = new Date();
+    S.selDay = ymd(firstOfMonth(today).getTime() === S.monthStart.getTime() ? today : S.monthStart);
+  } else {
+    S.weekStart = addDays(S.weekStart, 7 * n);
+  }
+  renderView();
+}
+
+function goToday() {
+  const today = new Date();
+  S.weekStart = mondayOf(today);
+  S.monthStart = firstOfMonth(today);
+  S.selDay = ymd(today);
+  renderView();
+}
+
+// Tâches regroupées par jour, entre deux dates
+function tasksByDay(from, to) {
+  const byDay = new Map();
+  for (const t of S.tasks.values()) {
+    for (const d of occurrences(t, from, to)) {
+      if (!byDay.has(d)) byDay.set(d, []);
+      byDay.get(d).push(t);
+    }
+  }
+  for (const [ds, list] of byDay) {
+    list.sort((a, b) => {
+      const da = isDone(a, ds), dbb = isDone(b, ds);
+      if (da !== dbb) return da ? 1 : -1;
+      return (a.createdAt || 0) - (b.createdAt || 0);
+    });
+  }
+  return byDay;
+}
+
+const fMonthOnly = new Intl.DateTimeFormat('fr-FR', { month: 'long' });
+const fMonthShort = new Intl.DateTimeFormat('fr-FR', { month: 'short', year: 'numeric' });
+const WEEKDAY_LETTERS = ['L', 'M', 'M', 'J', 'V', 'S', 'D'];
+
+function renderMonth() {
+  const first = S.monthStart;
+  const last = new Date(first.getFullYear(), first.getMonth() + 1, 0);
+  const gridStart = mondayOf(first);
+  const gridEnd = addDays(mondayOf(last), 6);
+  const today = ymd(new Date());
+  const byDay = tasksByDay(ymd(gridStart), ymd(gridEnd));
+
+  // L'année n'est affichée que si ce n'est pas l'année en cours (titre court sur téléphone)
+  $('#period').textContent = cap(first.getFullYear() === new Date().getFullYear()
+    ? fMonthOnly.format(first) : fMonthShort.format(first));
+  $('#today-btn').hidden = first.getTime() === firstOfMonth(new Date()).getTime() && S.selDay === today;
+
+  const cells = [];
+  for (let d = gridStart; d <= gridEnd; d = addDays(d, 1)) {
+    const ds = ymd(d);
+    const list = byDay.get(ds) || [];
+    const out = d.getMonth() !== first.getMonth();
+    const shown = list.slice(0, 4);
+    const doneCount = list.filter((t) => isDone(t, ds)).length;
+    cells.push(h('button', {
+      type: 'button',
+      class: `mcell${out ? ' is-out' : ''}${ds === today ? ' is-now' : ''}${ds === S.selDay ? ' is-sel' : ''}${ds < today ? ' is-past' : ''}`,
+      'aria-label': `${fFull.format(d)} : ${list.length ? `${list.length} tâche${list.length > 1 ? 's' : ''}, ${doneCount} faite${doneCount > 1 ? 's' : ''}` : 'rien de prévu'}`,
+      'aria-pressed': String(ds === S.selDay),
+      onclick: () => {
+        S.selDay = ds;
+        if (out) S.monthStart = firstOfMonth(d);
+        renderMonth();
+      },
+    },
+    h('span', { class: 'mnum', text: d.getDate() }),
+    list.length ? h('span', { class: 'mdots', 'aria-hidden': 'true' },
+      shown.map((t) => h('i', { class: `mdot${t.assignee === 'both' ? ' both' : ''}${isDone(t, ds) ? ' done' : ''}`, vars: whoVars(t.assignee) })),
+      list.length > shown.length ? h('span', { class: 'mmore', text: `+${list.length - shown.length}` }) : null) : null));
+  }
+
+  // Détail du jour sélectionné, sous le calendrier
+  const sel = parseYmd(S.selDay);
+  const selList = byDay.get(S.selDay) || [];
+  const detail = h('section', { class: 'day month-detail' },
+    h('button', {
+      type: 'button', class: 'day-head',
+      'aria-label': `Ajouter une tâche ${fWeekday.format(sel)} ${fDayMonth.format(sel)}`,
+      onclick: () => openTask(null, S.selDay),
+    },
+    h('span', { class: 'dname', text: cap(fWeekday.format(sel)) }),
+    h('span', { class: 'ddate', text: fDayMonth.format(sel) }),
+    h('span', { class: 'dadd', 'aria-hidden': 'true', text: '+' })),
+    selList.length
+      ? h('ul', { class: 'tasks' }, selList.map((t) => taskRow(t, S.selDay)))
+      : h('p', { class: 'empty', text: 'Rien de prévu ce jour-là.' }));
+
+  $('#month').replaceChildren(
+    h('div', { class: 'mweek', 'aria-hidden': 'true' }, WEEKDAY_LETTERS.map((l) => h('span', { text: l }))),
+    h('div', { class: 'mgrid' }, cells),
+    detail,
+  );
 }
 
 function colorOf(uid) { return S.members[uid]?.color || '#9A97A1'; }
@@ -335,23 +472,13 @@ function renderWeek() {
   $('#period').textContent = fmtRange(start);
   $('#today-btn').hidden = from === ymd(mondayOf(new Date()));
 
-  const byDay = new Map();
-  for (const t of S.tasks.values()) {
-    for (const d of occurrences(t, from, to)) {
-      if (!byDay.has(d)) byDay.set(d, []);
-      byDay.get(d).push(t);
-    }
-  }
+  const byDay = tasksByDay(from, to);
 
   const days = [];
   for (let i = 0; i < 7; i++) {
     const date = addDays(start, i);
     const ds = ymd(date);
-    const list = (byDay.get(ds) || []).sort((a, b) => {
-      const da = isDone(a, ds), dbb = isDone(b, ds);
-      if (da !== dbb) return da ? 1 : -1;
-      return (a.createdAt || 0) - (b.createdAt || 0);
-    });
+    const list = byDay.get(ds) || [];
     days.push(h('section', { class: `day${ds === today ? ' is-today' : ''}${ds < today ? ' is-past' : ''}` },
       h('button', {
         type: 'button', class: 'day-head',
@@ -389,7 +516,7 @@ function toggleDone(t, ds) {
   // Affichage immédiat, l'enregistrement suit (même hors ligne)
   t.completions = { ...(t.completions || {}) };
   if (done) delete t.completions[ds]; else t.completions[ds] = value;
-  renderWeek();
+  renderView();
   track(updateDoc(doc(db, 'tasks', t.id),
     new FieldPath('completions', ds), value,
     'updatedAt', serverTimestamp(),
@@ -442,7 +569,10 @@ function saveTask(e) {
   $('#task-sheet').close();
   // Si la tâche est dans une autre semaine, on y va pour la voir
   const ws = mondayOf(parseYmd(date));
-  if (ymd(ws) !== ymd(S.weekStart)) { S.weekStart = ws; renderWeek(); }
+  S.weekStart = ws;
+  S.monthStart = firstOfMonth(parseYmd(date));
+  S.selDay = date;
+  renderView();
 }
 
 function deleteTask() {
@@ -668,14 +798,60 @@ function renderBackupInfo() {
 // =====================================================================
 //  Réglages
 // =====================================================================
+// Thème : interrupteur « Comme le téléphone » + deux icônes soleil / lune
 function renderThemeSeg() {
-  const seg = $('#theme-seg');
-  if (!seg) return;
-  const cur = themePref();
-  const opts = [['auto', 'Comme le téléphone'], ['light', 'Clair'], ['dark', 'Sombre']];
-  seg.replaceChildren(...opts.map(([v, label]) => h('label', {},
-    h('input', { type: 'radio', name: 'theme', value: v, checked: v === cur, onchange: () => applyTheme(v) }),
-    h('span', { text: label }))));
+  const auto = $('#theme-auto');
+  if (!auto) return;
+  const pref = themePref();
+  auto.checked = pref === 'auto';
+  const current = isDark() ? 'dark' : 'light';
+  $('#theme-manual').classList.toggle('is-auto', pref === 'auto');
+  document.querySelectorAll('[data-theme-choice]').forEach((b) => {
+    b.setAttribute('aria-checked', String(b.dataset.themeChoice === current));
+  });
+}
+
+// ---------- Changer le mot de passe ----------
+function openPassword() {
+  $('#password-form').reset();
+  $('#pw-error').hidden = true;
+  $('#password-dialog').showModal();
+  setTimeout(() => $('#pw-current').focus(), 60);
+}
+
+async function changePassword(e) {
+  e.preventDefault();
+  const err = $('#pw-error');
+  const cur = $('#pw-current').value;
+  const next = $('#pw-new').value;
+  const conf = $('#pw-confirm').value;
+  const fail = (m) => { err.textContent = m; err.hidden = false; };
+  err.hidden = true;
+  if (!cur) return fail('Écris ton mot de passe actuel.');
+  if (next.length < 12) return fail('Le nouveau mot de passe doit faire au moins 12 caractères.');
+  if (next !== conf) return fail('Les deux nouveaux mots de passe ne sont pas identiques.');
+  if (next === cur) return fail('Le nouveau mot de passe doit être différent de l\'actuel.');
+  if (!S.online) return fail('Il faut une connexion internet.');
+  const btn = $('#pw-submit');
+  btn.disabled = true;
+  try {
+    const user = auth.currentUser;
+    // Par sécurité, Firebase redemande le mot de passe actuel avant tout changement
+    await reauthenticateWithCredential(user, EmailAuthProvider.credential(user.email, cur));
+    await updatePassword(user, next);
+    $('#password-dialog').close();
+    toast('Mot de passe changé ✓');
+  } catch (x) {
+    switch (x?.code) {
+      case 'auth/invalid-credential':
+      case 'auth/wrong-password': fail('Mot de passe actuel incorrect.'); break;
+      case 'auth/weak-password':
+      case 'auth/password-does-not-meet-requirements': fail('Ce mot de passe est trop simple. Choisis-en un plus long.'); break;
+      case 'auth/too-many-requests': fail('Trop d\'essais. Réessaie dans quelques minutes.'); break;
+      case 'auth/network-request-failed': fail('Pas de connexion internet.'); break;
+      default: fail('Le changement n\'a pas pu se faire. Réessaie.');
+    }
+  } finally { btn.disabled = false; }
 }
 
 function openMenu() {
@@ -743,26 +919,32 @@ function bindUi() {
   });
 
   // Navigation semaine
-  $('#prev-btn').addEventListener('click', () => { S.weekStart = addDays(S.weekStart, -7); renderWeek(); });
-  $('#next-btn').addEventListener('click', () => { S.weekStart = addDays(S.weekStart, 7); renderWeek(); });
-  $('#today-btn').addEventListener('click', () => { S.weekStart = mondayOf(new Date()); renderWeek(); });
-  // Balayage gauche/droite pour changer de semaine
-  let sx = null, sy = null;
-  const week = $('#week');
-  week.addEventListener('touchstart', (e) => { sx = e.touches[0].clientX; sy = e.touches[0].clientY; }, { passive: true });
-  week.addEventListener('touchend', (e) => {
-    if (sx == null) return;
-    const dx = e.changedTouches[0].clientX - sx, dy = e.changedTouches[0].clientY - sy;
-    sx = null;
-    if (Math.abs(dx) > 70 && Math.abs(dx) > Math.abs(dy) * 1.6) {
-      S.weekStart = addDays(S.weekStart, dx < 0 ? 7 : -7); renderWeek();
-    }
-  }, { passive: true });
+  $('#prev-btn').addEventListener('click', () => goStep(-1));
+  $('#next-btn').addEventListener('click', () => goStep(1));
+  $('#today-btn').addEventListener('click', goToday);
+  $('#view-week').addEventListener('click', () => setView('week'));
+  $('#view-month').addEventListener('click', () => setView('month'));
+  // Balayage gauche/droite pour changer de semaine ou de mois
+  for (const zone of [$('#week'), $('#month')]) {
+    let sx = null, sy = null;
+    zone.addEventListener('touchstart', (e) => { sx = e.touches[0].clientX; sy = e.touches[0].clientY; }, { passive: true });
+    zone.addEventListener('touchend', (e) => {
+      if (sx == null) return;
+      const dx = e.changedTouches[0].clientX - sx, dy = e.changedTouches[0].clientY - sy;
+      sx = null;
+      if (Math.abs(dx) > 70 && Math.abs(dx) > Math.abs(dy) * 1.6) goStep(dx < 0 ? 1 : -1);
+    }, { passive: true });
+  }
 
-  $('#theme-btn').addEventListener('click', () => applyTheme(isDark() ? 'light' : 'dark'));
+  $('#theme-auto').addEventListener('change', (e) => applyTheme(e.target.checked ? 'auto' : (isDark() ? 'dark' : 'light')));
+  document.querySelectorAll('[data-theme-choice]').forEach((b) => b.addEventListener('click', () => applyTheme(b.dataset.themeChoice)));
+  $('#password-btn').addEventListener('click', openPassword);
+  $('#password-form').addEventListener('submit', changePassword);
+  $('#pw-cancel').addEventListener('click', () => $('#password-dialog').close());
   $('#menu-btn').addEventListener('click', openMenu);
   $('#fab').addEventListener('click', () => {
     const today = new Date();
+    if (S.view === 'month') { openTask(null, S.selDay); return; }
     const inWeek = ymd(mondayOf(today)) === ymd(S.weekStart);
     openTask(null, inWeek ? ymd(today) : ymd(S.weekStart));
   });
@@ -797,8 +979,8 @@ function bindUi() {
   let hiddenAt = 0;
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) { hiddenAt = Date.now(); return; }
-    if (Date.now() - hiddenAt > 30 * 60000) S.weekStart = mondayOf(new Date());
-    if (!$('#screen-main').hidden) { renderWeek(); if (S.synced) dailyBackup(); }
+    if (Date.now() - hiddenAt > 30 * 60000) { goToday(); return void (S.synced && dailyBackup()); }
+    if (!$('#screen-main').hidden) { renderView(); if (S.synced) dailyBackup(); }
   });
 }
 
