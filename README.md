@@ -8,6 +8,7 @@ Elle s'installe sur l'écran d'accueil de l'iPhone et d'Android, et se synchroni
 - **Semaine** et **Mois** : le calendrier des tâches de ménage, une couleur par personne.
 - **Actions** : une liste d'icônes de ménage (vaisselle, évier, four, micro-ondes…) modifiable à deux : ajouter une action avec son emoji, choisir son rang, réordonner, retirer.
 - **Commentaires** sur chaque tâche.
+- **Courses** : liste à cocher partagée, rangée par magasin (magasins à ajouter, renommer, réordonner).
 - Mode clair/sombre, changement de mot de passe, indicateur de sauvegarde, copies automatiques et export/import.
 
 À venir : tâches récurrentes.
@@ -60,7 +61,7 @@ Au premier lancement, chacun se connecte avec son e-mail et son mot de passe, pu
 | Niveau | Comment ça marche |
 |---|---|
 | **En ligne, en continu** | Chaque modification part sur Firebase en quelques secondes. Hors ligne, elle est gardée sur le téléphone et envoyée toute seule au retour du réseau. |
-| **Copie automatique par jour** | À la première ouverture de la journée, l'app enregistre une copie complète (tâches, notes, rappels, actions). Les 35 derniers jours sont conservés. (Les sauvegardes intégrées de Firebase sont payantes : c'est l'alternative gratuite.) |
+| **Copie automatique par jour** | À la première ouverture de la journée, l'app enregistre une copie complète (tâches, notes, rappels, actions, courses). Les 35 derniers jours sont conservés. (Les sauvegardes intégrées de Firebase sont payantes : c'est l'alternative gratuite.) |
 | **Fichier sur l'appareil** | *⋯ → Télécharger une copie* : un fichier `.json` à garder dans Fichiers, Drive, etc. Indispensable en cas de problème avec le compte Firebase lui-même. Conseil : une fois par mois. |
 | **Restaurer** | *⋯ → Copies en ligne → Restaurer*, ou *Importer un fichier*. Avant chaque restauration, une copie de l'état actuel est faite automatiquement : on peut toujours revenir en arrière. |
 

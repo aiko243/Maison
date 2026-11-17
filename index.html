@@ -108,12 +108,14 @@
         <button type="button" id="view-home" aria-pressed="true">Accueil</button>
         <button type="button" id="view-week" aria-pressed="false">Semaine</button>
         <button type="button" id="view-month" aria-pressed="false">Mois</button>
+        <button type="button" id="view-shop" aria-pressed="false">Courses</button>
       </div>
     </div>
     <div id="legend" class="legend" hidden></div>
     <main id="home" class="home"></main>
     <main id="week" class="week" hidden></main>
     <main id="month" class="month" hidden></main>
+    <main id="shop" class="shop" hidden></main>
 
     <button type="button" id="status" class="status" data-state="offline">
       <span class="dot" aria-hidden="true"></span><span id="status-text">Connexion…</span>
@@ -244,6 +246,43 @@
       <p id="act-error" class="form-error" role="alert" hidden></p>
       <button type="submit" class="btn-primary wide">Ajouter</button>
       <button type="button" class="btn-text left" id="actions-reset">Revenir à la liste de départ</button>
+    </form>
+  </dialog>
+
+  <!-- Article de courses -->
+  <dialog id="item-dialog" class="modal">
+    <form id="item-form" novalidate>
+      <h2>Article</h2>
+      <label class="field">
+        <span>Nom</span>
+        <input id="item-text" type="text" maxlength="200" autocomplete="off">
+      </label>
+      <label class="field">
+        <span>Magasin</span>
+        <select id="item-store"></select>
+      </label>
+      <div class="sheet-actions">
+        <button type="button" class="btn-text danger" id="item-delete">Retirer</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn-text" id="item-cancel">Annuler</button>
+        <button type="submit" class="btn-primary">Enregistrer</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Magasins -->
+  <dialog id="stores-dialog" class="sheet">
+    <div class="sheet-head">
+      <h2>Magasins</h2>
+      <button type="button" class="icon-btn" id="stores-close" aria-label="Fermer">
+        <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+    <p class="muted small">La liste de courses suit cet ordre. Touchez un nom pour le modifier.</p>
+    <ol id="stores-list" class="actions-list"></ol>
+    <form id="stores-form" class="quick-add stores-add" novalidate>
+      <input id="store-new" type="text" maxlength="30" placeholder="Ex. Marché, Pharmacie…" aria-label="Nouveau magasin" autocomplete="off" enterkeyhint="done">
+      <button type="submit" class="btn-primary">Ajouter</button>
     </form>
   </dialog>
 

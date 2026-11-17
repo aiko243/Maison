@@ -16,7 +16,7 @@ import {
 } from 'https://www.gstatic.com/firebasejs/12.14.0/firebase-firestore.js';
 import { firebaseConfig } from './firebase-config.js';
 
-const APP_VERSION = '2.1.0';
+const APP_VERSION = '2.2.0';
 const DATA_VERSION = 1;          // version du format des données (on ne fait qu'ajouter, jamais effacer)
 const BACKUP_KEEP_DAYS = 35;     // copies en ligne conservées ~5 semaines
 const MAX_BACKUP_CHARS = 900000; // limite Firestore : 1 Mo par document
@@ -35,6 +35,9 @@ const S = {
   weekStart: mondayOf(new Date()),
   view: 'home',         // l'app s'ouvre toujours sur l'accueil
   notes: new Map(),     // notes partagées et rappels
+  shopping: new Map(),  // liste de courses
+  stores: null,         // magasins, dans l'ordre choisi
+  shopStore: (() => { try { return localStorage.getItem('shopStore') || ''; } catch { return ''; } })(),
   actions: null,        // liste des actions (icône + nom), null = liste par défaut
   pend: {},             // écritures en attente, par liste
   monthStart: firstOfMonth(new Date()),
@@ -218,7 +221,7 @@ function start() {
 
 function onLogout() {
   unsubs.forEach((u) => u()); unsubs = [];
-  Object.assign(S, { uid: null, members: {}, membersReady: false, tasks: new Map(), notes: new Map(), actions: null, pend: {}, synced: false, lastBackupAt: null, view: 'home' });
+  Object.assign(S, { uid: null, members: {}, membersReady: false, tasks: new Map(), notes: new Map(), shopping: new Map(), stores: null, actions: null, pend: {}, synced: false, lastBackupAt: null, view: 'home' });
   mainStarted = false;
   $('#login-password').value = '';
   show('login');
@@ -352,6 +355,25 @@ function enterMain() {
     if ($('#task-sheet').open) renderEmojiPicker();
     renderStatus();
   }, softListenError));
+  unsubs.push(onSnapshot(
+    query(collection(db, 'shopping'), where('deleted', '==', false)),
+    { includeMetadataChanges: true },
+    (snap) => {
+      S.shopping = new Map(snap.docs.map((d) => [d.id, { id: d.id, ...d.data() }]));
+      onMeta('shopping', snap.metadata);
+      if (S.view === 'shop') renderShopping();
+      renderStatus();
+    },
+    softListenError,
+  ));
+  unsubs.push(onSnapshot(doc(db, 'config', 'stores'), { includeMetadataChanges: true }, (snap) => {
+    const items = snap.exists() ? snap.data().items : null;
+    S.stores = Array.isArray(items) ? items.filter((x) => x && typeof x.id === 'string' && typeof x.name === 'string') : [];
+    onMeta('stores', snap.metadata);
+    if ($('#stores-dialog').open) renderStoresManager();
+    if (S.view === 'shop') renderShopping();
+    renderStatus();
+  }, softListenError));
 }
 
 function render() {
@@ -365,12 +387,15 @@ function renderView() {
   $('#home').hidden = v !== 'home';
   $('#week').hidden = v !== 'week';
   $('#month').hidden = v !== 'month';
-  $('#legend').hidden = v === 'home';
-  for (const name of ['home', 'week', 'month']) $(`#view-${name}`).setAttribute('aria-pressed', String(v === name));
-  $('#prev-btn').hidden = $('#next-btn').hidden = v === 'home';
+  $('#shop').hidden = v !== 'shop';
+  $('#legend').hidden = v === 'home' || v === 'shop';
+  $('#fab').hidden = v === 'shop';
+  for (const name of ['home', 'week', 'month', 'shop']) $(`#view-${name}`).setAttribute('aria-pressed', String(v === name));
+  $('#prev-btn').hidden = $('#next-btn').hidden = v === 'home' || v === 'shop';
   $('#prev-btn').setAttribute('aria-label', v === 'month' ? 'Mois précédent' : 'Semaine précédente');
   $('#next-btn').setAttribute('aria-label', v === 'month' ? 'Mois suivant' : 'Semaine suivante');
   if (v === 'home') renderHome();
+  else if (v === 'shop') renderShopping();
   else if (v === 'month') renderMonth();
   else renderWeek();
 }
@@ -379,7 +404,7 @@ function setView(v) {
   if (v === S.view) return;
   // Entre semaine et mois, on garde le même moment ; depuis l'accueil, on part d'aujourd'hui
   const today = new Date();
-  if (S.view === 'home') {
+  if (S.view === 'home' || S.view === 'shop') {
     S.weekStart = mondayOf(today); S.monthStart = firstOfMonth(today); S.selDay = ymd(today);
   } else if (v === 'month') {
     const inWeek = ymd(mondayOf(today)) === ymd(S.weekStart);
@@ -1038,16 +1063,215 @@ function saveNote(e) {
 }
 
 // =====================================================================
+//  Liste de courses, rangée par magasin
+// =====================================================================
+const NO_STORE = '';
+function storeList() { return S.stores || []; }
+function storeName(id) { return storeList().find((s) => s.id === id)?.name || 'Sans magasin'; }
+function currentStore() {
+  const id = S.shopStore;
+  return storeList().some((s) => s.id === id) ? id : NO_STORE;
+}
+function setCurrentStore(id) {
+  S.shopStore = id;
+  try { localStorage.setItem('shopStore', id); } catch { /* rien */ }
+  renderShopping();
+}
+
+function renderShopping() {
+  $('#period').textContent = 'Courses';
+  $('#today-btn').hidden = true;
+  const items = [...S.shopping.values()];
+  const stores = storeList();
+  const known = new Set(stores.map((s) => s.id));
+  const cur = currentStore();
+
+  // Ajout rapide + choix du magasin
+  const addCard = h('section', { class: 'card shop-add' },
+    h('form', { class: 'quick-add', onsubmit: (e) => {
+      e.preventDefault();
+      const input = e.target.querySelector('input');
+      const text = input.value.trim();
+      if (!text) return;
+      createItem(text, currentStore());
+      input.value = '';
+      input.focus();
+    } },
+    h('input', { type: 'text', id: 'shop-input', maxlength: 200, placeholder: 'Ajouter un article…', 'aria-label': 'Nouvel article', enterkeyhint: 'done', autocomplete: 'off' }),
+    h('button', { type: 'submit', class: 'icon-btn', 'aria-label': 'Ajouter l\'article' }, plusIcon())),
+    h('div', { class: 'store-chips', role: 'radiogroup', 'aria-label': 'Magasin du prochain article' },
+      [{ id: NO_STORE, name: 'Sans magasin' }, ...stores].map((s) => h('button', {
+        type: 'button', role: 'radio', class: 'chip', 'aria-checked': String(s.id === cur),
+        onclick: () => setCurrentStore(s.id), text: s.name,
+      })),
+      h('button', { type: 'button', class: 'chip chip-add', onclick: openStores, text: stores.length ? 'Magasins…' : '+ Magasin' })));
+
+  // Groupes : magasins dans l'ordre choisi, puis « Sans magasin »
+  const groups = [...stores.map((s) => ({ id: s.id, name: s.name })), { id: NO_STORE, name: 'Sans magasin' }];
+  const sections = [];
+  for (const g of groups) {
+    const list = items.filter((it) => (known.has(it.store) ? it.store : NO_STORE) === g.id)
+      .sort((a, b) => Number(a.done) - Number(b.done) || (a.createdAt || 0) - (b.createdAt || 0));
+    if (!list.length) continue;
+    const left = list.filter((it) => !it.done).length;
+    sections.push(h('section', { class: 'card shop-group' },
+      h('div', { class: 'card-head' }, h('h2', { text: g.name }),
+        h('span', { class: 'card-count', text: left ? `${left} à prendre` : 'Tout est pris ✓' })),
+      h('ul', { class: 'checklist' }, list.map((it) => h('li', { class: it.done ? 'is-done' : null },
+        h('button', {
+          type: 'button', class: 'check small', role: 'checkbox', 'aria-checked': String(!!it.done),
+          'aria-label': `${it.text} : ${it.done ? 'pris' : 'à prendre'}`, vars: { '--c': 'var(--accent)' },
+          onclick: () => updateItem(it, { done: !it.done }),
+        }),
+        h('button', { type: 'button', class: 'note-text', onclick: () => openItem(it), text: it.text }))))));
+  }
+
+  const checked = items.filter((it) => it.done).length;
+  $('#shop').replaceChildren(
+    addCard,
+    ...(sections.length ? sections : [h('p', { class: 'empty center-text', text: 'La liste est vide. Ajoutez un article ci-dessus.' })]),
+    ...(checked ? [h('button', { type: 'button', class: 'btn-ghost', onclick: clearCheckedItems, text: `Retirer les articles pris (${checked})` })] : []),
+  );
+}
+
+function createItem(text, store) {
+  const ref = doc(collection(db, 'shopping'));
+  const data = {
+    text: text.slice(0, 200), store, done: false, deleted: false,
+    createdBy: S.uid, createdAt: Date.now(), updatedAt: serverTimestamp(), updatedBy: S.uid, v: DATA_VERSION,
+  };
+  S.shopping.set(ref.id, { id: ref.id, ...data });
+  renderShopping();
+  track(setDoc(ref, data));
+}
+
+function updateItem(it, changes) {
+  Object.assign(it, changes);
+  renderShopping();
+  track(updateDoc(doc(db, 'shopping', it.id), { ...changes, updatedAt: serverTimestamp(), updatedBy: S.uid }));
+}
+
+function softDeleteItems(list, message) {
+  const b = writeBatch(db);
+  for (const it of list) {
+    b.update(doc(db, 'shopping', it.id), { deleted: true, deletedAt: Date.now(), updatedAt: serverTimestamp(), updatedBy: S.uid });
+    S.shopping.delete(it.id);
+  }
+  renderShopping();
+  track(b.commit());
+  toast(message, {
+    label: 'Annuler',
+    run: () => {
+      const u = writeBatch(db);
+      for (const it of list) u.update(doc(db, 'shopping', it.id), { deleted: false, deletedAt: deleteField(), updatedAt: serverTimestamp(), updatedBy: S.uid });
+      track(u.commit());
+    },
+  });
+}
+
+function clearCheckedItems() {
+  const done = [...S.shopping.values()].filter((it) => it.done);
+  if (done.length) softDeleteItems(done, `${done.length} article${done.length > 1 ? 's' : ''} retiré${done.length > 1 ? 's' : ''}`);
+}
+
+// --- Modifier un article ---
+function openItem(it) {
+  S.editingItem = it;
+  $('#item-text').value = it.text;
+  const sel = $('#item-store');
+  sel.replaceChildren(...[{ id: NO_STORE, name: 'Sans magasin' }, ...storeList()].map((s) => h('option', { value: s.id, text: s.name })));
+  sel.value = storeList().some((s) => s.id === it.store) ? it.store : NO_STORE;
+  $('#item-dialog').showModal();
+}
+function saveItem(e) {
+  e.preventDefault();
+  const it = S.editingItem;
+  const text = $('#item-text').value.trim().slice(0, 200);
+  const store = $('#item-store').value;
+  $('#item-dialog').close();
+  if (!it) return;
+  if (!text) { softDeleteItems([it], 'Article retiré'); return; }
+  const changes = {};
+  if (text !== it.text) changes.text = text;
+  if (store !== it.store) changes.store = store;
+  if (Object.keys(changes).length) updateItem(it, changes);
+}
+
+// --- Magasins ---
+function saveStores(list) {
+  S.stores = list;
+  track(setDoc(doc(db, 'config', 'stores'), { items: list, updatedAt: serverTimestamp(), updatedBy: S.uid }));
+  renderStoresManager();
+  if (S.view === 'shop') renderShopping();
+}
+
+function renderStoresManager() {
+  const list = storeList();
+  $('#stores-list').replaceChildren(...(list.length ? list.map((s, i) => h('li', {},
+    h('span', { class: 'act-rank', text: i + 1 }),
+    h('input', {
+      type: 'text', class: 'store-name', value: s.name, maxlength: 30, 'aria-label': `Nom du magasin ${i + 1}`,
+      onchange: (e) => {
+        const name = e.target.value.trim().slice(0, 30);
+        if (!name) { e.target.value = s.name; return; }
+        saveStores(list.map((x) => (x.id === s.id ? { ...x, name } : x)));
+      },
+    }),
+    h('button', {
+      type: 'button', class: 'icon-btn small', 'aria-label': `Monter ${s.name}`, disabled: i === 0,
+      onclick: () => { const l = [...list]; [l[i - 1], l[i]] = [l[i], l[i - 1]]; saveStores(l); },
+    }, svgArrow('up')),
+    h('button', {
+      type: 'button', class: 'icon-btn small', 'aria-label': `Descendre ${s.name}`, disabled: i === list.length - 1,
+      onclick: () => { const l = [...list]; [l[i + 1], l[i]] = [l[i], l[i + 1]]; saveStores(l); },
+    }, svgArrow('down')),
+    h('button', {
+      type: 'button', class: 'icon-btn small danger', 'aria-label': `Retirer ${s.name}`,
+      onclick: () => {
+        // Les articles de ce magasin passent dans « Sans magasin », rien n'est perdu
+        saveStores(list.filter((x) => x.id !== s.id));
+        toast(`« ${s.name} » retiré`, { label: 'Annuler', run: () => saveStores(list) });
+      },
+    }, svgArrow('x')))) : [h('li', { class: 'muted small', text: 'Aucun magasin pour l\'instant.' })]));
+}
+
+function addStore(e) {
+  e.preventDefault();
+  const input = $('#store-new');
+  const name = input.value.trim().slice(0, 30);
+  if (!name) return;
+  const list = storeList();
+  if (list.some((s) => normalize(s.name) === normalize(name))) { toast('Ce magasin existe déjà.'); return; }
+  if (list.length >= 30) { toast('30 magasins maximum.'); return; }
+  const id = `s${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
+  saveStores([...list, { id, name }]);
+  input.value = '';
+  setCurrentStore(id);
+}
+
+function openStores() {
+  renderStoresManager();
+  $('#stores-dialog').showModal();
+}
+
+// =====================================================================
 //  Sauvegardes
 // =====================================================================
 
 // Toutes les données (y compris les tâches supprimées) en JSON simple
 async function collectData(fromServer) {
   const get = fromServer ? getDocsFromServer : getDocs;
-  const [ts, ms, ns, cs] = await Promise.all([
+  // Les listes ajoutées après la version 1 sont lues « au mieux » : si les règles de sécurité
+  // n'ont pas encore été mises à jour, la copie des tâches se fait quand même.
+  const optional = (p) => p.catch(() => ({ forEach() {} }));
+  const [ts, ms, ns, cs, ss] = await Promise.all([
     get(collection(db, 'tasks')), get(collection(db, 'members')),
-    get(collection(db, 'notes')), get(collection(db, 'config')),
+    optional(get(collection(db, 'notes'))), optional(get(collection(db, 'config'))),
+    optional(get(collection(db, 'shopping'))),
   ]);
+  const shopping = {};
+  ss.forEach((d) => { shopping[d.id] = plain(d.data()); });
+  let storesList = null;
   const tasks = {};
   ts.forEach((d) => { tasks[d.id] = plain(d.data()); });
   const notes = {};
@@ -1055,8 +1279,11 @@ async function collectData(fromServer) {
   const members = {};
   ms.forEach((d) => { const m = d.data(); members[d.id] = { name: m.name, color: m.color }; });
   let actionsList = null;
-  cs.forEach((d) => { if (d.id === 'actions' && Array.isArray(d.data().items)) actionsList = d.data().items; });
-  return { app: 'maison', format: 2, dataVersion: DATA_VERSION, exportedAt: new Date().toISOString(), members, tasks, notes, actions: actionsList };
+  cs.forEach((d) => {
+    if (d.id === 'actions' && Array.isArray(d.data().items)) actionsList = d.data().items;
+    if (d.id === 'stores' && Array.isArray(d.data().items)) storesList = d.data().items;
+  });
+  return { app: 'maison', format: 3, dataVersion: DATA_VERSION, exportedAt: new Date().toISOString(), members, tasks, notes, actions: actionsList, shopping, stores: storesList };
 }
 
 function backupDoc(data, kind) {
@@ -1173,6 +1400,25 @@ function cleanNote(n, validUids) {
   return out;
 }
 
+function cleanItem(it, validUids) {
+  if (!it || typeof it.text !== 'string' || !it.text.trim()) return null;
+  const out = {
+    text: it.text.trim().slice(0, 200), store: typeof it.store === 'string' ? it.store.slice(0, 40) : '',
+    done: !!it.done, deleted: !!it.deleted,
+    createdBy: validUids.includes(it.createdBy) ? it.createdBy : S.uid,
+    createdAt: typeof it.createdAt === 'number' ? it.createdAt : Date.now(),
+    v: DATA_VERSION,
+  };
+  if (out.deleted) out.deletedAt = typeof it.deletedAt === 'number' ? it.deletedAt : Date.now();
+  return out;
+}
+
+function cleanStores(list) {
+  if (!Array.isArray(list)) return null;
+  return list.filter((x) => x && typeof x.id === 'string' && /^[A-Za-z0-9_-]{1,40}$/.test(x.id) && typeof x.name === 'string' && x.name.trim())
+    .slice(0, 30).map((x) => ({ id: x.id, name: x.name.trim().slice(0, 30) }));
+}
+
 function cleanActions(list) {
   if (!Array.isArray(list)) return null;
   const out = list.filter((a) => a && typeof a.e === 'string' && ONE_EMOJI_RE.test(a.e) && typeof a.label === 'string' && a.label.trim())
@@ -1186,7 +1432,7 @@ async function restoreFrom(data, label) {
   const visible = entries.filter(([, t]) => !t?.deleted).length;
   const ok = await confirmDialog(
     'Restaurer cette copie ?',
-    `${label} · ${visible} tâche${visible > 1 ? 's' : ''}.\n\nLes tâches${data.notes ? ', notes et rappels' : ''} actuels seront remplacés par ceux de la copie. Juste avant, une copie de l'état actuel est faite : tu pourras revenir en arrière.`,
+    `${label} · ${visible} tâche${visible > 1 ? 's' : ''}.\n\nLes tâches${data.notes ? ', notes, rappels' : ''}${data.shopping ? ' et courses' : ''} actuels seront remplacés par ceux de la copie. Juste avant, une copie de l'état actuel est faite : tu pourras revenir en arrière.`,
     'Restaurer',
   );
   if (!ok) return;
@@ -1230,6 +1476,23 @@ async function restoreFrom(data, label) {
       }
     }
     // Liste des actions
+    // Liste de courses et magasins
+    if (data.shopping && typeof data.shopping === 'object') {
+      const keepItems = new Set();
+      for (const [id, it] of Object.entries(data.shopping)) {
+        const clean = cleanItem(it, validUids);
+        if (!clean || !/^[A-Za-z0-9_-]{1,64}$/.test(id)) continue;
+        keepItems.add(id);
+        ops.push((b) => b.set(doc(db, 'shopping', id), { ...clean, updatedAt: serverTimestamp(), updatedBy: S.uid }));
+      }
+      for (const [id, it] of Object.entries(current.shopping || {})) {
+        if (!keepItems.has(id) && !it.deleted) {
+          ops.push((b) => b.update(doc(db, 'shopping', id), { deleted: true, deletedAt: Date.now(), updatedAt: serverTimestamp(), updatedBy: S.uid }));
+        }
+      }
+    }
+    const storesClean = cleanStores(data.stores);
+    if (storesClean) ops.push((b) => b.set(doc(db, 'config', 'stores'), { items: storesClean, updatedAt: serverTimestamp(), updatedBy: S.uid }));
     const acts = cleanActions(data.actions);
     if (acts) ops.push((b) => b.set(doc(db, 'config', 'actions'), { items: acts, updatedAt: serverTimestamp(), updatedBy: S.uid }));
     for (let i = 0; i < ops.length; i += 400) {
@@ -1415,6 +1678,12 @@ function bindUi() {
   $('#today-btn').addEventListener('click', goToday);
   $('#view-home').addEventListener('click', () => setView('home'));
   $('#view-week').addEventListener('click', () => setView('week'));
+  $('#view-shop').addEventListener('click', () => setView('shop'));
+  $('#item-form').addEventListener('submit', saveItem);
+  $('#item-cancel').addEventListener('click', () => $('#item-dialog').close());
+  $('#item-delete').addEventListener('click', () => { $('#item-dialog').close(); if (S.editingItem) softDeleteItems([S.editingItem], 'Article retiré'); });
+  $('#stores-form').addEventListener('submit', addStore);
+  $('#stores-close').addEventListener('click', () => $('#stores-dialog').close());
   $('#view-month').addEventListener('click', () => setView('month'));
   // Balayage gauche/droite pour changer de semaine ou de mois
   for (const zone of [$('#week'), $('#month')]) {
@@ -1480,7 +1749,7 @@ function bindUi() {
     if (ok) { $('#menu-sheet').close(); signOut(auth); }
   });
 
-  [$('#task-sheet'), $('#menu-sheet'), $('#actions-dialog')].forEach(closeOnBackdrop);
+  [$('#task-sheet'), $('#menu-sheet'), $('#actions-dialog'), $('#stores-dialog')].forEach(closeOnBackdrop);
 
   // Au retour sur l'app (le lendemain par exemple) : on revient à aujourd'hui et on refait la copie du jour si besoin
   let hiddenAt = 0;

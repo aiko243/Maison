@@ -84,10 +84,32 @@ service cloud.firestore {
         && d.v is int;
     }
 
-    // ---- Réglages partagés (liste des actions et icônes) ----
+    // ---- Liste de courses ----
+    match /shopping/{itemId} {
+      allow read: if isMember();
+      allow create, update: if isMember() && validItem(request.resource.data);
+      // Aucun effacement définitif : un article retiré est seulement masqué
+      allow delete: if false;
+    }
+    function validItem(d) {
+      return d.keys().hasAll(['text', 'store', 'done', 'deleted', 'createdBy', 'createdAt', 'updatedAt', 'updatedBy', 'v'])
+        && d.keys().hasOnly(['text', 'store', 'done', 'deleted', 'deletedAt', 'createdBy', 'createdAt', 'updatedAt', 'updatedBy', 'v'])
+        && d.text is string && d.text.size() > 0 && d.text.size() <= 200
+        && d.store is string && d.store.size() <= 40
+        && d.done is bool
+        && d.deleted is bool
+        && (!('deletedAt' in d) || d.deletedAt is number)
+        && d.createdBy in uids()
+        && d.createdAt is number
+        && d.updatedBy == request.auth.uid
+        && d.updatedAt == request.time
+        && d.v is int;
+    }
+
+    // ---- Réglages partagés (actions et icônes, magasins) ----
     match /config/{docId} {
       allow read: if isMember();
-      allow create, update: if isMember() && docId == 'actions' && validActions(request.resource.data);
+      allow create, update: if isMember() && docId in ['actions', 'stores'] && validActions(request.resource.data);
       allow delete: if false;
     }
     function validActions(d) {
