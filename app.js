@@ -16,7 +16,7 @@ import {
 } from 'https://www.gstatic.com/firebasejs/12.14.0/firebase-firestore.js';
 import { firebaseConfig } from './firebase-config.js';
 
-const APP_VERSION = '1.3.0';
+const APP_VERSION = '1.3.1';
 const DATA_VERSION = 1;          // version du format des données (on ne fait qu'ajouter, jamais effacer)
 const BACKUP_KEEP_DAYS = 35;     // copies en ligne conservées ~5 semaines
 const MAX_BACKUP_CHARS = 900000; // limite Firestore : 1 Mo par document
@@ -574,8 +574,19 @@ function suggestEmoji(text) {
   return '';
 }
 
+// Ordre d'affichage : des tâches les plus fréquentes (chaque jour) aux plus rares
+const EMOJI_ORDER = [
+  '🍽️', '🍳', '🗑️', '🐾',           // chaque jour
+  '🧹', '🧽', '🧺',                 // plusieurs fois par semaine
+  '🛒', '♻️', '🌿', '🚽', '🛁', '🪣', // chaque semaine
+  '🛏️', '📬', '👕',                 // toutes les une à deux semaines
+  '📦', '🧊', '🪟',                 // chaque mois
+  '🔧',                             // de temps en temps
+];
+const EMOJIS_SORTED = [...EMOJIS].sort((a, b) => EMOJI_ORDER.indexOf(a.e) - EMOJI_ORDER.indexOf(b.e));
+
 function renderEmojiPicker() {
-  $('#task-emoji').replaceChildren(...EMOJIS.map((item) => h('button', {
+  $('#task-emoji').replaceChildren(...EMOJIS_SORTED.map((item) => h('button', {
     type: 'button', role: 'radio', class: 'emoji-btn', title: item.label, 'aria-label': item.label,
     'aria-checked': String(item.e === S.pickedEmoji), text: item.e,
     onclick: () => {
