@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <!-- Sécurité : le navigateur n'exécute que le code de ce site et celui de Firebase (gstatic),
+       et ne parle qu'aux serveurs Firebase. Bloque l'injection de code venant d'ailleurs. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://www.gstatic.com; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self' https://www.gstatic.com https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'">
+  <meta name="referrer" content="no-referrer">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Maison</title>
+  <meta name="theme-color" content="#FAF9F7">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Maison">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="stylesheet" href="style.css">
+  <script src="theme-init.js"></script>
+  <script type="module" src="app.js"></script>
+</head>
+<body>
+
+  <!-- Chargement -->
+  <section id="screen-loading" class="screen center">
+    <div class="spinner" aria-hidden="true"></div>
+    <p class="muted" id="loading-text">Chargement…</p>
+  </section>
+
+  <!-- Configuration Firebase manquante -->
+  <section id="screen-config" class="screen center" hidden>
+    <div class="card narrow">
+      <h1>Presque prêt</h1>
+      <p class="muted">Il manque la configuration Firebase dans le fichier <code>firebase-config.js</code>.</p>
+    </div>
+  </section>
+
+  <!-- Connexion -->
+  <section id="screen-login" class="screen center" hidden>
+    <form id="login-form" class="narrow" novalidate>
+      <img src="icons/icon.svg" alt="" class="logo" width="56" height="56">
+      <h1>Maison</h1>
+      <label class="field">
+        <span>E-mail</span>
+        <input id="login-email" type="email" autocomplete="username" inputmode="email" required>
+      </label>
+      <label class="field">
+        <span>Mot de passe</span>
+        <input id="login-password" type="password" autocomplete="current-password" required>
+      </label>
+      <p id="login-error" class="form-error" role="alert" hidden></p>
+      <button type="submit" class="btn-primary wide" id="login-submit">Se connecter</button>
+      <button type="button" class="btn-text" id="forgot-btn">Mot de passe oublié ?</button>
+    </form>
+  </section>
+
+  <!-- Accès refusé -->
+  <section id="screen-denied" class="screen center" hidden>
+    <div class="narrow">
+      <h1>Accès refusé</h1>
+      <p class="muted">Ce compte n'a pas accès à la maison. Vérifie que les règles de sécurité Firestore contiennent bien vos deux identifiants (UID).</p>
+      <button type="button" class="btn-primary wide" id="denied-logout">Se déconnecter</button>
+    </div>
+  </section>
+
+  <!-- Premier lancement : prénom et couleur -->
+  <section id="screen-profile" class="screen center" hidden>
+    <form id="profile-form" class="narrow" novalidate>
+      <h1>Bienvenue</h1>
+      <p class="muted">Ton prénom et ta couleur. Ton copain ou ta copine choisira les siens sur son téléphone.</p>
+      <label class="field">
+        <span>Prénom</span>
+        <input id="profile-name" type="text" maxlength="30" autocomplete="given-name" required>
+      </label>
+      <div class="field">
+        <span>Couleur</span>
+        <div class="swatches" id="profile-colors" role="radiogroup" aria-label="Couleur"></div>
+      </div>
+      <p id="profile-error" class="form-error" role="alert" hidden></p>
+      <button type="submit" class="btn-primary wide">C'est parti</button>
+    </form>
+  </section>
+
+  <!-- Écran principal : semaine -->
+  <section id="screen-main" class="screen" hidden>
+    <header class="topbar">
+      <div class="nav">
+        <button type="button" class="icon-btn" id="prev-btn" aria-label="Semaine précédente">
+          <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <h1 id="period" class="period" aria-live="polite"></h1>
+        <button type="button" class="icon-btn" id="next-btn" aria-label="Semaine suivante">
+          <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M9 5l7 7-7 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+      </div>
+      <div class="top-actions">
+        <button type="button" class="pill" id="today-btn" hidden>Aujourd'hui</button>
+        <button type="button" class="icon-btn" id="theme-btn" aria-label="Changer de thème">
+          <svg class="i-moon" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
+          <svg class="i-sun" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><circle cx="12" cy="12" r="4" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        </button>
+        <button type="button" class="icon-btn" id="menu-btn" aria-label="Réglages et sauvegardes">
+          <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><circle cx="5" cy="12" r="1.8" fill="currentColor"/><circle cx="12" cy="12" r="1.8" fill="currentColor"/><circle cx="19" cy="12" r="1.8" fill="currentColor"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <div id="legend" class="legend"></div>
+    <main id="week" class="week"></main>
+
+    <button type="button" id="status" class="status" data-state="offline">
+      <span class="dot" aria-hidden="true"></span><span id="status-text">Connexion…</span>
+    </button>
+
+    <button type="button" id="fab" class="fab" aria-label="Ajouter une tâche">
+      <svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+    </button>
+  </section>
+
+  <!-- Fiche tâche -->
+  <dialog id="task-sheet" class="sheet">
+    <form id="task-form" novalidate>
+      <h2 id="task-sheet-title">Nouvelle tâche</h2>
+      <input id="task-title" class="input-big" type="text" maxlength="80" placeholder="Ex. Passer l'aspirateur" autocomplete="off" enterkeyhint="done" required>
+      <div class="field">
+        <span>Pour qui ?</span>
+        <div class="seg" id="task-who" role="radiogroup" aria-label="Pour qui"></div>
+      </div>
+      <label class="field">
+        <span>Jour</span>
+        <input id="task-date" type="date" required>
+      </label>
+      <p id="task-error" class="form-error" role="alert" hidden></p>
+      <div class="sheet-actions">
+        <button type="button" class="btn-text danger" id="task-delete" hidden>Supprimer</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn-text" id="task-cancel">Annuler</button>
+        <button type="submit" class="btn-primary">Enregistrer</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Réglages et sauvegardes -->
+  <dialog id="menu-sheet" class="sheet">
+    <div class="sheet-head">
+      <h2>Réglages</h2>
+      <button type="button" class="icon-btn" id="menu-close" aria-label="Fermer">
+        <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+
+    <section class="menu-section">
+      <h3>Mon profil</h3>
+      <label class="field">
+        <span>Prénom</span>
+        <input id="menu-name" type="text" maxlength="30" autocomplete="given-name">
+      </label>
+      <div class="swatches" id="menu-colors" role="radiogroup" aria-label="Ma couleur"></div>
+    </section>
+
+    <section class="menu-section">
+      <h3>Apparence</h3>
+      <div class="seg" id="theme-seg" role="radiogroup" aria-label="Thème"></div>
+    </section>
+
+    <section class="menu-section">
+      <h3>Sauvegardes</h3>
+      <p class="muted small" id="backup-info"></p>
+      <div class="row-btns">
+        <button type="button" class="btn-secondary" id="export-btn">Télécharger une copie</button>
+        <button type="button" class="btn-secondary" id="import-btn">Importer un fichier</button>
+        <input type="file" id="import-file" accept="application/json,.json" hidden>
+      </div>
+      <h4>Copies en ligne</h4>
+      <ul id="backup-list" class="backup-list"></ul>
+    </section>
+
+    <section class="menu-section">
+      <button type="button" class="btn-text danger" id="logout-btn">Se déconnecter</button>
+      <p class="muted small" id="version-info"></p>
+    </section>
+  </dialog>
+
+  <!-- Confirmation -->
+  <dialog id="confirm-dialog" class="modal">
+    <h2 id="confirm-title"></h2>
+    <p id="confirm-text" class="muted"></p>
+    <div class="sheet-actions">
+      <span class="spacer"></span>
+      <button type="button" class="btn-text" id="confirm-cancel">Annuler</button>
+      <button type="button" class="btn-primary" id="confirm-ok">OK</button>
+    </div>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden>
+    <span id="toast-text"></span>
+    <button type="button" id="toast-action" class="toast-action" hidden></button>
+  </div>
+
+</body>
+</html>
