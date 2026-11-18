@@ -16,7 +16,7 @@ import {
 } from 'https://www.gstatic.com/firebasejs/12.14.0/firebase-firestore.js';
 import { firebaseConfig } from './firebase-config.js';
 
-const APP_VERSION = '2.4.0';
+const APP_VERSION = '2.5.0';
 const DATA_VERSION = 1;          // version du format des données (on ne fait qu'ajouter, jamais effacer)
 const BACKUP_KEEP_DAYS = 35;     // copies en ligne conservées ~5 semaines
 const MAX_BACKUP_CHARS = 900000; // limite Firestore : 1 Mo par document
@@ -41,6 +41,7 @@ const S = {
   actions: null,        // liste des actions (icône + nom), null = liste par défaut
   pend: {},             // écritures en attente, par liste
   openDays: new Set(),  // jours ouverts dans la vue semaine
+  filter: 'all',        // calendrier : tout le monde, une personne ou « Nous deux »
   closedToday: false,
   showDone: new Set(),  // listes où les tâches faites sont affichées
   monthStart: firstOfMonth(new Date()),
@@ -442,9 +443,13 @@ function goToday() {
 }
 
 // Tâches regroupées par jour, entre deux dates
-function tasksByDay(from, to) {
+function passesFilter(t) {
+  return S.filter === 'all' || t.assignee === S.filter;
+}
+function tasksByDay(from, to, filtered = false) {
   const byDay = new Map();
   for (const t of S.tasks.values()) {
+    if (filtered && !passesFilter(t)) continue;
     for (const d of occurrences(t, from, to)) {
       if (!byDay.has(d)) byDay.set(d, []);
       byDay.get(d).push(t);
@@ -470,7 +475,7 @@ function renderMonth() {
   const gridStart = mondayOf(first);
   const gridEnd = addDays(mondayOf(last), 6);
   const today = ymd(new Date());
-  const byDay = tasksByDay(ymd(gridStart), ymd(gridEnd));
+  const byDay = tasksByDay(ymd(gridStart), ymd(gridEnd), true);
 
   // L'année n'est affichée que si ce n'est pas l'année en cours (titre court sur téléphone)
   $('#period').textContent = cap(first.getFullYear() === new Date().getFullYear()
@@ -482,8 +487,13 @@ function renderMonth() {
     const ds = ymd(d);
     const list = byDay.get(ds) || [];
     const out = d.getMonth() !== first.getMonth();
-    const shown = list.slice(0, 4);
     const doneCount = list.filter((t) => isDone(t, ds)).length;
+    // Les tâches quotidiennes reviennent tous les jours : on montre surtout les autres (icônes),
+    // et une barre « qui fait quoi » résume toutes les tâches du jour.
+    const special = list.filter((t) => freqOf(t) !== 'daily');
+    const shown = special.slice(0, 4);
+    const share = [...orderedUids(), 'both'].map((k) => [k, list.filter((t) => t.assignee === k).length]).filter(([, n]) => n);
+    const allDone = list.length > 0 && doneCount === list.length;
     cells.push(h('button', {
       type: 'button',
       class: `mcell${out ? ' is-out' : ''}${ds === today ? ' is-now' : ''}${ds === S.selDay ? ' is-sel' : ''}${ds < today ? ' is-past' : ''}`,
@@ -495,10 +505,15 @@ function renderMonth() {
         renderMonth();
       },
     },
-    h('span', { class: 'mnum', text: d.getDate() }),
-    list.length ? h('span', { class: 'mdots', 'aria-hidden': 'true' },
-      shown.map((t) => h('i', { class: `mdot${t.assignee === 'both' ? ' both' : ''}${isDone(t, ds) ? ' done' : ''}`, vars: whoVars(t.assignee) })),
-      list.length > shown.length ? h('span', { class: 'mmore', text: `+${list.length - shown.length}` }) : null) : null));
+    h('span', { class: `mnum${allDone ? ' all-done' : ''}`, text: d.getDate() }),
+    shown.length ? h('span', { class: 'memo', 'aria-hidden': 'true' },
+      shown.map((t) => h('i', {
+        class: `mchip${t.assignee === 'both' ? ' both' : ''}${isDone(t, ds) ? ' done' : ''}`,
+        vars: whoVars(t.assignee), text: splitTitle(t.title).emoji || '•',
+      })),
+      special.length > shown.length ? h('span', { class: 'mmore', text: `+${special.length - shown.length}` }) : null) : null,
+    share.length ? h('span', { class: 'mshare', 'aria-hidden': 'true' },
+      share.map(([k, n]) => h('b', { class: k === 'both' ? 'both' : null, vars: { ...whoVars(k), '--n': n } }))) : null));
   }
 
   // Détail du jour sélectionné, sous le calendrier
@@ -517,10 +532,29 @@ function renderMonth() {
       ? taskList(selList, S.selDay, `m${S.selDay}`)
       : h('p', { class: 'empty', text: 'Rien de prévu ce jour-là.' }));
 
+  // Récap du mois : combien de tâches pour chacun, et combien sont faites
+  const inMonth = tasksByDay(ymd(first), ymd(last));
+  const stats = [...orderedUids(), 'both'].map((k) => {
+    let total = 0, done = 0, special = 0;
+    for (const [ds, list] of inMonth) for (const t of list) if (t.assignee === k) {
+      total++; if (isDone(t, ds)) done++; if (freqOf(t) !== 'daily') special++;
+    }
+    return { k, total, done, special };
+  }).filter((x) => x.total);
+  const summary = stats.length ? h('section', { class: 'card month-sum' },
+    h('div', { class: 'card-head' }, h('h2', { text: `En ${fMonthOnly.format(first)}` })),
+    h('ul', { class: 'recap' }, stats.map(({ k, total, done, special }) => h('li', {},
+      h('i', { class: k === 'both' ? 'both' : null, vars: whoVars(k) }),
+      h('span', { class: 'r-name', text: k === S.uid ? `${nameOf(k)} (toi)` : whoLabel(k) }),
+      h('span', { class: 'r-bar' }, h('b', { class: k === 'both' ? 'both' : null, vars: { '--p': `${Math.round((done / total) * 100)}%`, ...whoVars(k) } })),
+      h('span', { class: 'r-count', text: `${done}/${total}` })))),
+    h('p', { class: 'small muted', text: 'Dans le calendrier : les icônes sont les tâches de la semaine, du mois et des 3 mois ; la barre sous chaque jour montre la part de chacun.' })) : null;
+
   $('#month').replaceChildren(
     h('div', { class: 'mweek', 'aria-hidden': 'true' }, WEEKDAY_LETTERS.map((l) => h('span', { text: l }))),
     h('div', { class: 'mgrid' }, cells),
     detail,
+    summary,
   );
 }
 
@@ -539,9 +573,15 @@ function whoVars(assignee) {
 }
 function whoLabel(assignee) { return assignee === 'both' ? 'Nous deux' : nameOf(assignee); }
 
+// Légende = filtre : toucher une personne n'affiche que ses tâches dans le calendrier
 function renderLegend() {
-  const uids = orderedUids();
-  $('#legend').replaceChildren(...uids.map((u) => h('span', {}, h('i', { vars: whoVars(u) }), nameOf(u))));
+  const keys = [...orderedUids(), 'both'];
+  if (S.filter !== 'all' && !keys.includes(S.filter)) S.filter = 'all';
+  $('#legend').replaceChildren(
+    ...[['all', 'Tout'], ...keys.map((k) => [k, whoLabel(k)])].map(([k, label]) => h('button', {
+      type: 'button', class: 'fchip', 'aria-pressed': String(S.filter === k),
+      onclick: () => { S.filter = S.filter === k ? 'all' : k; renderLegend(); renderView(); },
+    }, k === 'all' ? null : h('i', { class: k === 'both' ? 'both' : null, vars: whoVars(k) }), label)));
 }
 
 // Jours où une tâche apparaît dans [from, to] (prêt pour les tâches récurrentes)
@@ -617,7 +657,7 @@ function renderWeek() {
   $('#period').textContent = fmtRange(start);
   $('#today-btn').hidden = from === ymd(mondayOf(new Date()));
 
-  const byDay = tasksByDay(from, to);
+  const byDay = tasksByDay(from, to, true);
 
   const days = [];
   for (let i = 0; i < 7; i++) {

@@ -464,3 +464,29 @@ select {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5l5 5 5-5' fill='none' stroke='%238A7868' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   background-repeat: no-repeat; background-position: right 12px center; padding-right: 32px !important;
 }
+
+/* ===== Mois : qui fait quoi d'un coup d'œil ===== */
+.legend { align-items: center; gap: 6px; }
+.legend-label { font-size: 12.5px; color: var(--muted); margin-right: 2px; }
+.fchip { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 550; color: var(--muted);
+  padding: 5px 10px; border-radius: 999px; border: 1px solid var(--line); min-height: 32px; }
+.fchip i { width: 9px; height: 9px; border-radius: 50%; background: var(--c); }
+.fchip i.both { background: linear-gradient(135deg, var(--c1) 50%, var(--c2) 50%); }
+.fchip[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+.mcell { min-height: 74px; gap: 3px; padding: 4px 1px 6px; justify-content: flex-start; }
+.mnum.all-done { color: var(--ok) !important; font-weight: 700; }
+.mcell.is-now .mnum.all-done { color: var(--accent-text) !important; background: var(--ok); }
+.memo { display: flex; flex-wrap: wrap; justify-content: center; gap: 2px; max-width: 46px; }
+.mchip {
+  width: 21px; height: 21px; border-radius: 7px; display: grid; place-items: center;
+  font-style: normal; font-size: 12px; line-height: 1;
+  background: color-mix(in srgb, var(--c) 28%, transparent);
+  box-shadow: inset 0 -2px 0 var(--c);
+}
+.mchip.both { background: linear-gradient(135deg, color-mix(in srgb, var(--c1) 28%, transparent) 50%, color-mix(in srgb, var(--c2) 28%, transparent) 50%); box-shadow: none; }
+.mchip.done { opacity: .35; }
+.mshare { display: flex; width: 34px; height: 4px; border-radius: 999px; overflow: hidden; margin-top: auto; gap: 1px; }
+.mshare b { flex: var(--n) 1 0; background: var(--c); }
+.mshare b.both { background: linear-gradient(90deg, var(--c1), var(--c2)); }
+.mcell.is-out .memo, .mcell.is-out .mshare { opacity: .4; }
+.month-sum { margin-top: 14px; }
