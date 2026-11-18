@@ -2,7 +2,7 @@
 // Il ne garde QUE le code de l'app (pages, styles, scripts), jamais vos données.
 // Vos données sont gérées à part par Firebase : une mise à jour de l'app ne peut pas les effacer.
 
-const VERSION = 'maison-2.6.0';
+const VERSION = 'maison-2.6.1';
 const SHELL = [
   './',
   './index.html',
@@ -36,7 +36,8 @@ self.addEventListener('fetch', (event) => {
   // Code de l'app : d'abord le réseau (pour avoir la dernière version), sinon la copie locale
   if (url.origin === self.location.origin) {
     event.respondWith(
-      fetch(req)
+      // « no-cache » : on vérifie toujours auprès du serveur, pour avoir la dernière version tout de suite
+      fetch(req, { cache: 'no-cache' })
         .then((res) => {
           if (res.ok) { const copy = res.clone(); caches.open(VERSION).then((c) => c.put(req, copy)); }
           return res;
