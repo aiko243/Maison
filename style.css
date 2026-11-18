@@ -436,3 +436,31 @@ select { padding-right: 10px; }
 .seg-small label span { padding: 8px 12px; min-height: 38px; font-size: 14px; }
 .repeat-hint { font-size: 13px; color: var(--accent); font-weight: 600; }
 .task-repeat { color: var(--faint); }
+
+/* ===== Simplification : jours repliables, tâches faites repliées, fiche plus courte ===== */
+.day-row { display: flex; align-items: center; gap: 4px; }
+.day-row .day-head { flex: 1; min-width: 0; width: auto; margin: 0 0 0 -8px; }
+.dadd-btn { color: var(--muted); flex: 0 0 auto; margin-right: -8px; }
+.chev { width: 8px; height: 8px; border: solid var(--faint); border-width: 0 2px 2px 0; transform: rotate(-45deg); margin-right: 4px; transition: transform .15s; flex: 0 0 auto; align-self: center; }
+.is-open .chev { transform: rotate(45deg); }
+.dcount { margin-left: auto; font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.dcount.all { color: var(--ok); font-weight: 600; }
+.day .dadd { display: none; }
+.day:not(.is-open) { padding-bottom: 6px; }
+.day.is-today:not(.is-open) { padding-bottom: 6px; }
+.done-toggle { color: var(--muted); font-size: 13.5px; font-weight: 600; padding: 8px 0; min-height: 40px; text-align: left; }
+.when-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.when-row .field { min-width: 0; }
+#task-repeat-hint { margin-top: -10px; }
+#task-comment-toggle { padding: 0; margin-top: -6px; }
+.sticky-actions {
+  position: sticky; bottom: calc(-1 * env(safe-area-inset-bottom) - 18px); z-index: 2;
+  background: var(--surface); margin: 0 -20px calc(-1 * env(safe-area-inset-bottom) - 18px);
+  padding: 12px 20px calc(env(safe-area-inset-bottom) + 14px); border-top: 1px solid var(--line);
+}
+.month-detail .dadd { display: inline; }
+/* Petite flèche pour montrer qu'un menu se déroule */
+select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5l5 5 5-5' fill='none' stroke='%238A7868' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 12px center; padding-right: 32px !important;
+}

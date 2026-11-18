@@ -16,7 +16,7 @@ import {
 } from 'https://www.gstatic.com/firebasejs/12.14.0/firebase-firestore.js';
 import { firebaseConfig } from './firebase-config.js';
 
-const APP_VERSION = '2.3.0';
+const APP_VERSION = '2.4.0';
 const DATA_VERSION = 1;          // version du format des données (on ne fait qu'ajouter, jamais effacer)
 const BACKUP_KEEP_DAYS = 35;     // copies en ligne conservées ~5 semaines
 const MAX_BACKUP_CHARS = 900000; // limite Firestore : 1 Mo par document
@@ -40,6 +40,9 @@ const S = {
   shopStore: (() => { try { return localStorage.getItem('shopStore') || ''; } catch { return ''; } })(),
   actions: null,        // liste des actions (icône + nom), null = liste par défaut
   pend: {},             // écritures en attente, par liste
+  openDays: new Set(),  // jours ouverts dans la vue semaine
+  closedToday: false,
+  showDone: new Set(),  // listes où les tâches faites sont affichées
   monthStart: firstOfMonth(new Date()),
   selDay: ymd(new Date()),   // jour sélectionné dans la vue mois
   online: navigator.onLine,
@@ -511,7 +514,7 @@ function renderMonth() {
     h('span', { class: 'ddate', text: fDayMonth.format(sel) }),
     h('span', { class: 'dadd', 'aria-hidden': 'true', text: '+' })),
     selList.length
-      ? h('ul', { class: 'tasks' }, selList.map((t) => taskRow(t, S.selDay)))
+      ? taskList(selList, S.selDay, `m${S.selDay}`)
       : h('p', { class: 'empty', text: 'Rien de prévu ce jour-là.' }));
 
   $('#month').replaceChildren(
@@ -621,21 +624,50 @@ function renderWeek() {
     const date = addDays(start, i);
     const ds = ymd(date);
     const list = byDay.get(ds) || [];
-    days.push(h('section', { class: `day${ds === today ? ' is-today' : ''}${ds < today ? ' is-past' : ''}` },
-      h('button', {
-        type: 'button', class: 'day-head',
-        'aria-label': `Ajouter une tâche ${fWeekday.format(date)} ${fDayMonth.format(date)}`,
-        onclick: () => openTask(null, ds),
-      },
-      h('span', { class: 'dname', text: cap(fWeekday.format(date)) }),
-      h('span', { class: 'ddate', text: fDayMonth.format(date) }),
-      h('span', { class: 'dadd', 'aria-hidden': 'true', text: '+' })),
-      list.length ? h('ul', { class: 'tasks' }, list.map((t) => taskRow(t, ds))) : null));
+    // Un jour se replie : seul aujourd'hui est ouvert par défaut, on touche un jour pour l'ouvrir
+    const open = S.openDays.has(ds) || (ds === today && !S.closedToday);
+    const done = list.filter((t) => isDone(t, ds)).length;
+    days.push(h('section', { class: `day${ds === today ? ' is-today' : ''}${ds < today ? ' is-past' : ''}${open ? ' is-open' : ''}` },
+      h('div', { class: 'day-row' },
+        h('button', {
+          type: 'button', class: 'day-head', 'aria-expanded': String(open),
+          onclick: () => {
+            if (ds === today) S.closedToday = open;
+            else if (open) S.openDays.delete(ds); else S.openDays.add(ds);
+            renderWeek();
+          },
+        },
+        h('span', { class: 'chev', 'aria-hidden': 'true' }),
+        h('span', { class: 'dname', text: cap(fWeekday.format(date)) }),
+        h('span', { class: 'ddate', text: fDayMonth.format(date) }),
+        list.length ? h('span', { class: `dcount${done === list.length ? ' all' : ''}`, text: done === list.length ? `✓ ${done}/${list.length}` : `${done}/${list.length}` }) : null),
+        h('button', {
+          type: 'button', class: 'icon-btn dadd-btn',
+          'aria-label': `Ajouter une tâche ${fWeekday.format(date)} ${fDayMonth.format(date)}`,
+          onclick: () => openTask(null, ds),
+        }, plusIcon())),
+      open ? (list.length ? taskList(list, ds, `w${ds}`) : h('p', { class: 'empty', text: 'Rien de prévu.' })) : null));
   }
   $('#week').replaceChildren(...days);
 }
 
 function isDone(t, ds) { return !!(t.completions && t.completions[ds]); }
+
+// Liste de tâches où celles déjà faites se replient sous « ✓ n faites »
+function taskList(list, ds, key, opts) {
+  const todo = list.filter((t) => !isDone(t, ds));
+  const done = list.filter((t) => isDone(t, ds));
+  const open = S.showDone.has(key);
+  return [
+    todo.length ? h('ul', { class: 'tasks' }, todo.map((t) => taskRow(t, ds, opts?.(t)))) : null,
+    done.length ? h('button', {
+      type: 'button', class: 'done-toggle', 'aria-expanded': String(open),
+      onclick: () => { if (open) S.showDone.delete(key); else S.showDone.add(key); renderView(); },
+      text: `✓ ${done.length} faite${done.length > 1 ? 's' : ''}${open ? ' · masquer' : ''}`,
+    }) : null,
+    done.length && open ? h('ul', { class: 'tasks' }, done.map((t) => taskRow(t, ds, opts?.(t)))) : null,
+  ];
+}
 
 // Une ligne de tâche. opts.side remplace le nom affiché à droite (ex. la date pour « En retard »)
 function taskRow(t, ds, opts = {}) {
@@ -660,12 +692,12 @@ function taskRow(t, ds, opts = {}) {
 }
 
 function renderRepeat(selected) {
-  $('#task-repeat').replaceChildren(...REPEATS.map(([v, label]) => h('label', {},
-    h('input', { type: 'radio', name: 'repeat', value: v, checked: v === selected, onchange: updateRepeatHint }),
-    h('span', { text: label }))));
+  const sel = $('#task-repeat');
+  sel.replaceChildren(...REPEATS.map(([v, label]) => h('option', { value: v, text: label })));
+  sel.value = selected;
   updateRepeatHint();
 }
-function currentRepeat() { return document.querySelector('input[name="repeat"]:checked')?.value || ''; }
+function currentRepeat() { return $('#task-repeat').value || ''; }
 function updateRepeatHint() {
   const freq = currentRepeat();
   const date = $('#task-date').value;
@@ -818,9 +850,15 @@ function openTask(t, dateStr) {
   $('#task-date').value = t ? t.date : (dateStr || ymd(new Date()));
   renderWho(t ? t.assignee : S.uid);
   renderRepeat(t ? freqOf(t) : '');
+  const hasComment = !!$('#task-comment').value.trim();
+  $('#task-comment-field').hidden = !hasComment;
+  $('#task-comment-toggle').hidden = hasComment;
   $('#task-delete').hidden = !t;
   $('#task-error').hidden = true;
   $('#task-sheet').showModal();
+  // L'action choisie est visible sans devoir faire défiler
+  const picked = $('#task-emoji [aria-checked="true"]');
+  if (picked) $('#task-emoji').scrollLeft = picked.offsetLeft - 20;
 }
 
 function saveTask(e) {
@@ -857,6 +895,7 @@ function saveTask(e) {
   S.weekStart = mondayOf(parseYmd(date));
   S.monthStart = firstOfMonth(parseYmd(date));
   S.selDay = date;
+  S.openDays.add(date);
   renderView();
   if (S.view === 'home' && !t) {
     if (freq) toast(`Tâche ajoutée : ${repeatLabel(freq, date).toLowerCase()}`);
@@ -1067,7 +1106,7 @@ function renderHome() {
     todayList.length ? h('div', { class: 'progress', role: 'progressbar', 'aria-valuenow': progress, 'aria-valuemin': 0, 'aria-valuemax': 100, 'aria-label': 'Avancement du jour' },
       h('i', { vars: { '--p': `${progress}%`, '--c': colorOf(S.uid) } })) : null,
     todayList.length
-      ? h('ul', { class: 'tasks' }, todayList.map((t) => taskRow(t, today, { side: t.assignee === 'both' ? 'Nous deux' : '' })))
+      ? taskList(todayList, today, 'home', (t) => ({ side: t.assignee === 'both' ? 'Nous deux' : '' }))
       : h('p', { class: 'empty', text: 'Rien de prévu pour toi aujourd\'hui.' }),
     overdue.length ? h('h3', { class: 'sub', text: `En retard (${overdue.length})` }) : null,
     overdue.length ? h('ul', { class: 'tasks' }, overdue.map(([t, ds]) => taskRow(t, ds, { side: cap(fShortDay.format(parseYmd(ds))) }))) : null,
@@ -1881,6 +1920,12 @@ function bindUi() {
   // Fiche tâche
   $('#task-form').addEventListener('submit', saveTask);
   $('#task-date').addEventListener('change', updateRepeatHint);
+  $('#task-repeat').addEventListener('change', updateRepeatHint);
+  $('#task-comment-toggle').addEventListener('click', () => {
+    $('#task-comment-toggle').hidden = true;
+    $('#task-comment-field').hidden = false;
+    $('#task-comment').focus();
+  });
   $('#task-title').addEventListener('input', (e) => {
     if (S.emojiManual) return;
     const guess = suggestEmoji(e.target.value);

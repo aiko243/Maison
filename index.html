@@ -136,21 +136,24 @@
         <span>Pour qui ?</span>
         <div class="seg" id="task-who" role="radiogroup" aria-label="Pour qui"></div>
       </div>
-      <div class="field">
-        <span>Répéter</span>
-        <div class="seg seg-small" id="task-repeat" role="radiogroup" aria-label="Répéter"></div>
+      <div class="when-row">
+        <label class="field">
+          <span id="task-date-label">Jour</span>
+          <input id="task-date" type="date" required>
+        </label>
+        <label class="field">
+          <span>Répéter</span>
+          <select id="task-repeat"></select>
+        </label>
       </div>
-      <label class="field">
-        <span id="task-date-label">Jour</span>
-        <input id="task-date" type="date" required>
-        <small id="task-repeat-hint" class="repeat-hint" hidden></small>
-      </label>
-      <label class="field">
+      <small id="task-repeat-hint" class="repeat-hint" hidden></small>
+      <button type="button" class="btn-ghost" id="task-comment-toggle">+ Ajouter un commentaire</button>
+      <label class="field" id="task-comment-field" hidden>
         <span>Commentaire</span>
-        <textarea id="task-comment" rows="2" maxlength="500" placeholder="Facultatif : produit à utiliser, précision…"></textarea>
+        <textarea id="task-comment" rows="2" maxlength="500" placeholder="Produit à utiliser, précision…"></textarea>
       </label>
       <p id="task-error" class="form-error" role="alert" hidden></p>
-      <div class="sheet-actions">
+      <div class="sheet-actions sticky-actions">
         <button type="button" class="btn-text danger" id="task-delete" hidden>Supprimer</button>
         <span class="spacer"></span>
         <button type="button" class="btn-text" id="task-cancel">Annuler</button>
