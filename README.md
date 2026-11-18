@@ -11,7 +11,8 @@ Elle s'installe sur l'écran d'accueil de l'iPhone et d'Android, et se synchroni
 - **Courses** : liste à cocher partagée, rangée par magasin (magasins à ajouter, renommer, réordonner).
 - Mode clair/sombre, changement de mot de passe, indicateur de sauvegarde, copies automatiques et export/import.
 
-À venir : tâches récurrentes.
+- **Tâches qui se répètent** : chaque jour, chaque semaine, toutes les 2 semaines, chaque mois, tous les 3 mois (champ « Répéter » de la fiche tâche).
+- **Tâches de départ** : *⋯ → Ajouter nos tâches de ménage* crée en un geste la liste choisie ensemble.
 
 ---
 

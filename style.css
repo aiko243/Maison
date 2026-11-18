@@ -431,3 +431,8 @@ select { padding-right: 10px; }
 .store-name:focus { border-color: var(--line) !important; background: var(--bg) !important; }
 .stores-add { margin-top: 16px; }
 .shop .is-done .check::before { border-color: var(--accent-text); }
+
+/* ===== Répétition ===== */
+.seg-small label span { padding: 8px 12px; min-height: 38px; font-size: 14px; }
+.repeat-hint { font-size: 13px; color: var(--accent); font-weight: 600; }
+.task-repeat { color: var(--faint); }

@@ -16,7 +16,7 @@ import {
 } from 'https://www.gstatic.com/firebasejs/12.14.0/firebase-firestore.js';
 import { firebaseConfig } from './firebase-config.js';
 
-const APP_VERSION = '2.2.0';
+const APP_VERSION = '2.3.0';
 const DATA_VERSION = 1;          // version du format des données (on ne fait qu'ajouter, jamais effacer)
 const BACKUP_KEEP_DAYS = 35;     // copies en ligne conservées ~5 semaines
 const MAX_BACKUP_CHARS = 900000; // limite Firestore : 1 Mo par document
@@ -542,8 +542,69 @@ function renderLegend() {
 }
 
 // Jours où une tâche apparaît dans [from, to] (prêt pour les tâches récurrentes)
+// ---------- Répétition ----------
+// La tâche garde sa date de départ (t.date) ; la répétition en découle :
+//  - chaque semaine / toutes les 2 semaines : même jour de la semaine
+//  - chaque mois / tous les 3 mois : même « n-ième jour » du mois (ex. 2e samedi)
+const REPEATS = [
+  ['', 'Une fois'], ['daily', 'Chaque jour'], ['weekly', 'Chaque semaine'],
+  ['biweekly', 'Toutes les 2 semaines'], ['monthly', 'Chaque mois'], ['quarterly', 'Tous les 3 mois'],
+];
+const ORD = ['1er', '2e', '3e', '4e', 'dernier'];
+function freqOf(t) { return t.repeat && typeof t.repeat === 'object' && REPEATS.some(([k]) => k && k === t.repeat.freq) ? t.repeat.freq : ''; }
+function nthOf(d) {
+  // 1 à 4, ou 5 = « dernier » du mois
+  const n = Math.ceil(d.getDate() / 7);
+  return n >= 5 ? 5 : n;
+}
+function isLastOfMonth(d) { return addDays(d, 7).getMonth() !== d.getMonth(); }
+function sameNth(d, s) {
+  if (d.getDay() !== s.getDay()) return false;
+  const ns = nthOf(s);
+  return ns === 5 ? isLastOfMonth(d) : nthOf(d) === ns;
+}
+function matchesRepeat(freq, start, d) {
+  const diffDays = Math.round((d - start) / 86400000);
+  if (diffDays < 0) return false;
+  switch (freq) {
+    case 'daily': return true;
+    case 'weekly': return diffDays % 7 === 0;
+    case 'biweekly': return diffDays % 14 === 0;
+    case 'monthly': return sameNth(d, start);
+    case 'quarterly': {
+      const months = (d.getFullYear() - start.getFullYear()) * 12 + d.getMonth() - start.getMonth();
+      return months % 3 === 0 && sameNth(d, start);
+    }
+    default: return false;
+  }
+}
+function repeatLabel(freq, dateStr) {
+  if (!freq) return '';
+  const d = parseYmd(dateStr);
+  const wd = fWeekday.format(d);
+  const nth = ORD[nthOf(d) - 1];
+  switch (freq) {
+    case 'daily': return 'Tous les jours';
+    case 'weekly': return `Tous les ${wd}s`;
+    case 'biweekly': return `Un ${wd} sur deux`;
+    case 'monthly': return `Le ${nth} ${wd} de chaque mois`;
+    case 'quarterly': return `Le ${nth} ${wd} du mois, tous les 3 mois`;
+    default: return '';
+  }
+}
+
+// Jours où une tâche apparaît entre deux dates (incluses)
 function occurrences(t, from, to) {
-  return t.date >= from && t.date <= to ? [t.date] : [];
+  const freq = freqOf(t);
+  if (!freq) return t.date >= from && t.date <= to ? [t.date] : [];
+  const start = parseYmd(t.date);
+  const out = [];
+  let d = parseYmd(from > t.date ? from : t.date);
+  const end = parseYmd(to);
+  for (let i = 0; d <= end && i < 800; i++, d = addDays(d, 1)) {
+    if (matchesRepeat(freq, start, d)) out.push(ymd(d));
+  }
+  return out;
 }
 
 function renderWeek() {
@@ -593,7 +654,25 @@ function taskRow(t, ds, opts = {}) {
       h('span', { class: 'task-text' },
         h('span', { class: 'task-title', text }),
         comment ? h('span', { class: 'task-comment', text: comment }) : null),
-      h('span', { class: 'task-who', text: opts.side ?? whoLabel(t.assignee) })));
+      h('span', { class: 'task-who' },
+        freqOf(t) ? h('span', { class: 'task-repeat', title: repeatLabel(freqOf(t), t.date), 'aria-label': repeatLabel(freqOf(t), t.date), text: '↻ ' }) : null,
+        opts.side ?? whoLabel(t.assignee))));
+}
+
+function renderRepeat(selected) {
+  $('#task-repeat').replaceChildren(...REPEATS.map(([v, label]) => h('label', {},
+    h('input', { type: 'radio', name: 'repeat', value: v, checked: v === selected, onchange: updateRepeatHint }),
+    h('span', { text: label }))));
+  updateRepeatHint();
+}
+function currentRepeat() { return document.querySelector('input[name="repeat"]:checked')?.value || ''; }
+function updateRepeatHint() {
+  const freq = currentRepeat();
+  const date = $('#task-date').value;
+  $('#task-date-label').textContent = freq ? 'À partir du' : 'Jour';
+  const hint = $('#task-repeat-hint');
+  hint.textContent = freq && /^\d{4}-\d{2}-\d{2}$/.test(date) ? repeatLabel(freq, date) : '';
+  hint.hidden = !hint.textContent;
 }
 
 // ---------- Actions sur les tâches ----------
@@ -738,6 +817,7 @@ function openTask(t, dateStr) {
   $('#task-emoji').scrollLeft = 0;
   $('#task-date').value = t ? t.date : (dateStr || ymd(new Date()));
   renderWho(t ? t.assignee : S.uid);
+  renderRepeat(t ? freqOf(t) : '');
   $('#task-delete').hidden = !t;
   $('#task-error').hidden = true;
   $('#task-sheet').showModal();
@@ -751,6 +831,8 @@ function saveTask(e) {
   const comment = $('#task-comment').value.trim().slice(0, 500);
   const date = $('#task-date').value;
   const assignee = document.querySelector('input[name="who"]:checked')?.value || S.uid;
+  const freq = currentRepeat();
+  const repeat = freq ? { freq } : null;
   const err = $('#task-error');
   if (!title) { err.textContent = 'Donne un nom à la tâche, ou choisis une action.'; err.hidden = false; return; }
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) { err.textContent = 'Choisis un jour.'; err.hidden = false; return; }
@@ -758,13 +840,13 @@ function saveTask(e) {
   const t = S.editing;
   if (t) {
     track(updateDoc(doc(db, 'tasks', t.id), {
-      title, date, assignee, comment, updatedAt: serverTimestamp(), updatedBy: S.uid,
+      title, date, assignee, comment, repeat, updatedAt: serverTimestamp(), updatedBy: S.uid,
     }));
   } else {
     const ref = doc(collection(db, 'tasks'));
     track(setDoc(ref, {
       title, date, assignee, comment,
-      completions: {}, repeat: null, deleted: false,
+      completions: {}, repeat, deleted: false,
       createdBy: S.uid, createdAt: Date.now(),
       updatedAt: serverTimestamp(), updatedBy: S.uid,
       v: DATA_VERSION,
@@ -776,7 +858,68 @@ function saveTask(e) {
   S.monthStart = firstOfMonth(parseYmd(date));
   S.selDay = date;
   renderView();
-  if (S.view === 'home' && date !== ymd(new Date())) toast(`Tâche ajoutée pour ${fFull.format(parseYmd(date))}`);
+  if (S.view === 'home' && !t) {
+    if (freq) toast(`Tâche ajoutée : ${repeatLabel(freq, date).toLowerCase()}`);
+    else if (date !== ymd(new Date())) toast(`Tâche ajoutée pour ${fFull.format(parseYmd(date))}`);
+  }
+}
+
+// ---------- Tâches de ménage de départ (choisies ensemble) ----------
+// [titre, fréquence, détail] — semaine : jour (0 = dimanche … 6 = samedi) ;
+// mois : [n-ième, jour] ; 3 mois : [mois du trimestre 0-2 (0 = janv/avr/juil/oct), n-ième, jour]
+const STARTER = [
+  ['🍽️ Vaisselle', 'daily'], ['🍽️ Lave-vaisselle', 'daily'], ['🧽 Essuyer le plan de travail', 'daily'],
+  ['🍳 Essuyer les plaques de cuisson', 'daily'], ['🗑️ Sortir la poubelle', 'daily'], ['🪟 Aérer l\'appartement', 'daily'],
+  ['📦 Ranger le salon', 'daily'], ['🐾 Litière', 'daily'], ['🧽 Nettoyer la table basse', 'daily'],
+  ['🧹 Aspirateur rapide', 'daily'],
+  ['🧺 Lessive', 'weekly', 1], ['🪶 Poussière', 'weekly', 2], ['🚽 Toilettes', 'weekly', 3],
+  ['👕 Plier ou repasser le linge', 'weekly', 4], ['🧼 Poignées et interrupteurs', 'weekly', 5],
+  ['🧹 Aspirateur', 'weekly', 6], ['🪣 Serpillière', 'weekly', 6], ['🛁 Salle de bain', 'weekly', 0],
+  ['🍽️ Filtre du lave-vaisselle', 'monthly', [1, 6]], ['🗑️ Laver la poubelle', 'monthly', [2, 6]],
+  ['🧼 Cuisine à fond', 'monthly', [3, 6]], ['🛋️ Aspirer le canapé et le matelas', 'monthly', [4, 6]],
+  ['🧊 Nettoyer le frigo', 'quarterly', [0, 1, 6]], ['♨️ Nettoyer le micro-ondes', 'quarterly', [0, 1, 0]],
+  ['🔥 Nettoyer le four', 'quarterly', [1, 2, 6]], ['🪟 Laver les vitres', 'quarterly', [1, 3, 6]],
+  ['🪶 Plinthes et luminaires', 'quarterly', [2, 2, 6]],
+];
+
+// Première date à partir d'aujourd'hui qui correspond au rythme voulu
+function starterDate(freq, spec) {
+  let d = new Date(); d = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  for (let i = 0; i < 400; i++, d = addDays(d, 1)) {
+    if (freq === 'daily') return ymd(d);
+    if (freq === 'weekly' && d.getDay() === spec) return ymd(d);
+    if (freq === 'monthly' && d.getDay() === spec[1] && nthOf(d) === spec[0]) return ymd(d);
+    if (freq === 'quarterly' && d.getMonth() % 3 === spec[0] && d.getDay() === spec[2] && nthOf(d) === spec[1]) return ymd(d);
+  }
+  return ymd(new Date());
+}
+
+function missingStarter() {
+  const existing = new Set([...S.tasks.values()].map((t) => t.title));
+  return STARTER.filter(([title]) => !existing.has(title));
+}
+
+async function addStarterTasks() {
+  const todo = missingStarter();
+  if (!todo.length) { toast('Toutes les tâches de départ sont déjà dans l\'app.'); return; }
+  const n = (f) => todo.filter((x) => x[1] === f).length;
+  const ok = await confirmDialog('Ajouter nos tâches de ménage ?',
+    `${n('daily')} chaque jour, ${n('weekly')} chaque semaine, ${n('monthly')} chaque mois, ${n('quarterly')} tous les 3 mois.\n\nElles sont toutes à « Nous deux » : touche une tâche pour changer qui la fait, son jour ou son rythme.`,
+    'Ajouter');
+  if (!ok) return;
+  const b = writeBatch(db);
+  const now = Date.now();
+  todo.forEach(([title, freq, spec], i) => {
+    b.set(doc(collection(db, 'tasks')), {
+      title, date: starterDate(freq, spec), assignee: 'both', comment: '',
+      completions: {}, repeat: { freq }, deleted: false,
+      createdBy: S.uid, createdAt: now + i, updatedAt: serverTimestamp(), updatedBy: S.uid, v: DATA_VERSION,
+    });
+  });
+  track(b.commit());
+  $('#menu-sheet').close();
+  setView('week');
+  toast(`${todo.length} tâches ajoutées ✓`);
 }
 
 // ---------- Gestion des actions (Réglages) ----------
@@ -904,9 +1047,19 @@ function renderHome() {
   const yesterday = ymd(addDays(now, -1));
   const overdue = [];
   const past = tasksByDay(overdueFrom, yesterday);
+  const lastMissed = new Map();
   for (const [ds, list] of [...past.entries()].sort(([a], [b]) => (a < b ? -1 : 1))) {
-    for (const t of list) if (isMine(t) && !isDone(t, ds)) overdue.push([t, ds]);
+    for (const t of list) {
+      if (!isMine(t) || isDone(t, ds)) continue;
+      const freq = freqOf(t);
+      if (!freq) overdue.push([t, ds]);
+      // Tâches répétées : seulement la dernière oubliée, et pas les quotidiennes (elles reviennent demain)
+      else if (freq !== 'daily') lastMissed.set(t.id, [t, ds]);
+    }
   }
+  const todayIds = new Set(todayList.map((t) => t.id));
+  for (const [id, pair] of lastMissed) if (!todayIds.has(id)) overdue.push(pair);
+  overdue.sort((a, b) => (a[1] < b[1] ? -1 : 1));
   const progress = todayList.length ? Math.round((doneToday / todayList.length) * 100) : 0;
 
   const myDay = card('Ma journée',
@@ -1377,7 +1530,7 @@ function cleanTask(t, validUids) {
   }
   const out = {
     title: t.title.trim().slice(0, 120), date: t.date, assignee, completions,
-    repeat: t.repeat && typeof t.repeat === 'object' ? t.repeat : null,
+    repeat: t.repeat && typeof t.repeat === 'object' && REPEATS.some(([k]) => k && k === t.repeat.freq) ? { freq: t.repeat.freq } : null,
     deleted: !!t.deleted,
     createdBy: validUids.includes(t.createdBy) ? t.createdBy : S.uid,
     createdAt: typeof t.createdAt === 'number' ? t.createdAt : Date.now(),
@@ -1614,6 +1767,9 @@ function openMenu() {
   renderProfileColors('#menu-colors', me.color);
   renderThemeSeg();
   renderBackupInfo();
+  const missing = missingStarter().length;
+  $('#starter-btn').hidden = !missing;
+  $('#starter-btn').textContent = `Ajouter nos tâches de ménage (${missing})`;
   $('#version-info').textContent = `Version ${APP_VERSION}`;
   $('#menu-sheet').showModal();
   renderBackupList();
@@ -1701,6 +1857,7 @@ function bindUi() {
   document.querySelectorAll('[data-theme-choice]').forEach((b) => b.addEventListener('click', () => applyTheme(b.dataset.themeChoice)));
   $('#password-btn').addEventListener('click', openPassword);
   $('#actions-btn').addEventListener('click', openActions);
+  $('#starter-btn').addEventListener('click', addStarterTasks);
   $('#actions-close').addEventListener('click', () => $('#actions-dialog').close());
   $('#actions-form').addEventListener('submit', addAction);
   $('#actions-reset').addEventListener('click', async () => {
@@ -1723,6 +1880,7 @@ function bindUi() {
 
   // Fiche tâche
   $('#task-form').addEventListener('submit', saveTask);
+  $('#task-date').addEventListener('change', updateRepeatHint);
   $('#task-title').addEventListener('input', (e) => {
     if (S.emojiManual) return;
     const guess = suggestEmoji(e.target.value);

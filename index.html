@@ -136,9 +136,14 @@
         <span>Pour qui ?</span>
         <div class="seg" id="task-who" role="radiogroup" aria-label="Pour qui"></div>
       </div>
+      <div class="field">
+        <span>Répéter</span>
+        <div class="seg seg-small" id="task-repeat" role="radiogroup" aria-label="Répéter"></div>
+      </div>
       <label class="field">
-        <span>Jour</span>
+        <span id="task-date-label">Jour</span>
         <input id="task-date" type="date" required>
+        <small id="task-repeat-hint" class="repeat-hint" hidden></small>
       </label>
       <label class="field">
         <span>Commentaire</span>
@@ -175,6 +180,7 @@
     <section class="menu-section">
       <h3>Tâches</h3>
       <div class="row-btns">
+        <button type="button" class="btn-secondary" id="starter-btn" hidden>Ajouter nos tâches de ménage</button>
         <button type="button" class="btn-secondary" id="actions-btn">Actions et icônes</button>
       </div>
     </section>
