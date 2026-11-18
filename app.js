@@ -16,7 +16,7 @@ import {
 } from 'https://www.gstatic.com/firebasejs/12.14.0/firebase-firestore.js';
 import { firebaseConfig } from './firebase-config.js';
 
-const APP_VERSION = '2.5.0';
+const APP_VERSION = '2.6.0';
 const DATA_VERSION = 1;          // version du format des données (on ne fait qu'ajouter, jamais effacer)
 const BACKUP_KEEP_DAYS = 35;     // copies en ligne conservées ~5 semaines
 const MAX_BACKUP_CHARS = 900000; // limite Firestore : 1 Mo par document
@@ -943,22 +943,25 @@ function saveTask(e) {
   }
 }
 
-// ---------- Tâches de ménage de départ (choisies ensemble) ----------
-// [titre, fréquence, détail] — semaine : jour (0 = dimanche … 6 = samedi) ;
-// mois : [n-ième, jour] ; 3 mois : [mois du trimestre 0-2 (0 = janv/avr/juil/oct), n-ième, jour]
+// ---------- Tâches de ménage de départ (choisies et réparties ensemble) ----------
+// [titre, fréquence, détail, qui] — qui : 'me' = la personne qui touche le bouton (celle qui a fait le choix),
+// 'other' = l'autre, 'both' = Nous deux.
+// Détail — semaine : jour (0 = dimanche … 6 = samedi) ; mois : [n-ième, jour] ;
+// 3 mois : [mois du trimestre 0-2 (0 = janv/avr/juil/oct), n-ième, jour]
 const STARTER = [
-  ['🍽️ Vaisselle', 'daily'], ['🍽️ Lave-vaisselle', 'daily'], ['🧽 Essuyer le plan de travail', 'daily'],
-  ['🍳 Essuyer les plaques de cuisson', 'daily'], ['🗑️ Sortir la poubelle', 'daily'], ['🪟 Aérer l\'appartement', 'daily'],
-  ['📦 Ranger le salon', 'daily'], ['🐾 Litière', 'daily'], ['🧽 Nettoyer la table basse', 'daily'],
-  ['🧹 Aspirateur rapide', 'daily'],
-  ['🧺 Lessive', 'weekly', 1], ['🪶 Poussière', 'weekly', 2], ['🚽 Toilettes', 'weekly', 3],
-  ['👕 Plier ou repasser le linge', 'weekly', 4], ['🧼 Poignées et interrupteurs', 'weekly', 5],
-  ['🧹 Aspirateur', 'weekly', 6], ['🪣 Serpillière', 'weekly', 6], ['🛁 Salle de bain', 'weekly', 0],
-  ['🍽️ Filtre du lave-vaisselle', 'monthly', [1, 6]], ['🗑️ Laver la poubelle', 'monthly', [2, 6]],
-  ['🧼 Cuisine à fond', 'monthly', [3, 6]], ['🛋️ Aspirer le canapé et le matelas', 'monthly', [4, 6]],
-  ['🧊 Nettoyer le frigo', 'quarterly', [0, 1, 6]], ['♨️ Nettoyer le micro-ondes', 'quarterly', [0, 1, 0]],
-  ['🔥 Nettoyer le four', 'quarterly', [1, 2, 6]], ['🪟 Laver les vitres', 'quarterly', [1, 3, 6]],
-  ['🪶 Plinthes et luminaires', 'quarterly', [2, 2, 6]],
+  ['🍽️ Vaisselle', 'daily', null, 'both'], ['🍽️ Lave-vaisselle', 'daily', null, 'both'],
+  ['🧽 Essuyer le plan de travail', 'daily', null, 'both'], ['🍳 Essuyer les plaques de cuisson', 'daily', null, 'both'],
+  ['🗑️ Sortir la poubelle', 'daily', null, 'other'], ['🪟 Aérer l\'appartement', 'daily', null, 'me'],
+  ['📦 Ranger le salon', 'daily', null, 'both'], ['🐾 Litière', 'daily', null, 'both'],
+  ['🧽 Nettoyer la table basse', 'daily', null, 'both'], ['🧹 Aspirateur rapide', 'daily', null, 'me'],
+  ['🧺 Lessive', 'weekly', 1, 'me'], ['🪶 Poussière', 'weekly', 2, 'other'], ['🚽 Toilettes', 'weekly', 3, 'both'],
+  ['👕 Plier ou repasser le linge', 'weekly', 4, 'me'], ['🧼 Poignées et interrupteurs', 'weekly', 5, 'both'],
+  ['🧹 Aspirateur', 'weekly', 6, 'other'], ['🪣 Serpillière', 'weekly', 6, 'me'], ['🛁 Salle de bain', 'weekly', 0, 'both'],
+  ['🍽️ Filtre du lave-vaisselle', 'monthly', [1, 6], 'both'], ['🗑️ Laver la poubelle', 'monthly', [2, 6], 'other'],
+  ['🧼 Cuisine à fond', 'monthly', [3, 6], 'both'], ['🛋️ Aspirer le canapé et le matelas', 'monthly', [4, 6], 'other'],
+  ['🧊 Nettoyer le frigo', 'quarterly', [0, 1, 6], 'other'], ['♨️ Nettoyer le micro-ondes', 'quarterly', [0, 1, 0], 'me'],
+  ['🔥 Nettoyer le four', 'quarterly', [1, 2, 6], 'other'], ['🪟 Laver les vitres', 'quarterly', [1, 3, 6], 'me'],
+  ['🪶 Plinthes et luminaires', 'quarterly', [2, 2, 6], 'other'],
 ];
 
 // Première date à partir d'aujourd'hui qui correspond au rythme voulu
@@ -973,32 +976,57 @@ function starterDate(freq, spec) {
   return ymd(new Date());
 }
 
-function missingStarter() {
-  const existing = new Set([...S.tasks.values()].map((t) => t.title));
-  return STARTER.filter(([title]) => !existing.has(title));
+function starterAssignee(who) {
+  if (who === 'me') return S.uid;
+  if (who === 'other') return otherUid();
+  return 'both';
+}
+function repartitionDone() { try { return localStorage.getItem('repartitionApplied') === '1'; } catch { return false; } }
+
+// Ce qu'il reste à faire : tâches à créer, et tâches déjà créées (à « Nous deux ») à attribuer
+function starterPlan() {
+  const byTitle = new Map([...S.tasks.values()].map((t) => [t.title, t]));
+  const create = [], assign = [];
+  for (const item of STARTER) {
+    const t = byTitle.get(item[0]);
+    if (!t) create.push(item);
+    else if (!repartitionDone() && item[3] !== 'both' && t.assignee === 'both') assign.push([t, item]);
+  }
+  return { create, assign, count: create.length + assign.length };
 }
 
 async function addStarterTasks() {
-  const todo = missingStarter();
-  if (!todo.length) { toast('Toutes les tâches de départ sont déjà dans l\'app.'); return; }
-  const n = (f) => todo.filter((x) => x[1] === f).length;
-  const ok = await confirmDialog('Ajouter nos tâches de ménage ?',
-    `${n('daily')} chaque jour, ${n('weekly')} chaque semaine, ${n('monthly')} chaque mois, ${n('quarterly')} tous les 3 mois.\n\nElles sont toutes à « Nous deux » : touche une tâche pour changer qui la fait, son jour ou son rythme.`,
-    'Ajouter');
+  const { create, assign, count } = starterPlan();
+  if (!count) { toast('Votre répartition est déjà en place.'); return; }
+  if (!otherUid()) {
+    confirmDialog('Il manque l\'autre compte',
+      'Pour attribuer des tâches à l\'autre personne, elle doit d\'abord se connecter une fois sur son téléphone et choisir son prénom. Réessaie ensuite.',
+      'OK', false, true);
+    return;
+  }
+  const items = [...create, ...assign.map(([, it]) => it)];
+  const n = (w) => items.filter((x) => x[3] === w).length;
+  const ok = await confirmDialog('Mettre en place votre répartition ?',
+    `${n('me')} tâches pour ${nameOf(S.uid)} (toi), ${n('other')} pour ${nameOf(otherUid())}, ${n('both')} à vous deux.\n\n${create.length ? `${create.length} tâches seront ajoutées. ` : ''}${assign.length ? `${assign.length} tâches déjà dans l'app seront attribuées. ` : ''}Tu pourras tout changer ensuite en touchant une tâche.`,
+    'Valider');
   if (!ok) return;
   const b = writeBatch(db);
   const now = Date.now();
-  todo.forEach(([title, freq, spec], i) => {
+  create.forEach(([title, freq, spec, who], i) => {
     b.set(doc(collection(db, 'tasks')), {
-      title, date: starterDate(freq, spec), assignee: 'both', comment: '',
+      title, date: starterDate(freq, spec), assignee: starterAssignee(who), comment: '',
       completions: {}, repeat: { freq }, deleted: false,
       createdBy: S.uid, createdAt: now + i, updatedAt: serverTimestamp(), updatedBy: S.uid, v: DATA_VERSION,
     });
   });
+  for (const [t, item] of assign) {
+    b.update(doc(db, 'tasks', t.id), { assignee: starterAssignee(item[3]), updatedAt: serverTimestamp(), updatedBy: S.uid });
+  }
   track(b.commit());
+  try { localStorage.setItem('repartitionApplied', '1'); } catch { /* rien */ }
   $('#menu-sheet').close();
-  setView('week');
-  toast(`${todo.length} tâches ajoutées ✓`);
+  setView('month');
+  toast('Répartition en place ✓');
 }
 
 // ---------- Gestion des actions (Réglages) ----------
@@ -1846,9 +1874,9 @@ function openMenu() {
   renderProfileColors('#menu-colors', me.color);
   renderThemeSeg();
   renderBackupInfo();
-  const missing = missingStarter().length;
-  $('#starter-btn').hidden = !missing;
-  $('#starter-btn').textContent = `Ajouter nos tâches de ménage (${missing})`;
+  const plan = starterPlan();
+  $('#starter-btn').hidden = !plan.count;
+  $('#starter-btn').textContent = plan.create.length ? `Ajouter nos tâches de ménage (${plan.create.length})` : 'Appliquer notre répartition';
   $('#version-info').textContent = `Version ${APP_VERSION}`;
   $('#menu-sheet').showModal();
   renderBackupList();
